@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!--
+      JSON structured logs. Every simulated failure logs failure_mode and
+      event_type via MDC so downstream (CloudWatch, or later the agent's
+      retrieval/diagnose step) can filter and correlate on them directly.
+    -->
+    <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>failure_mode</includeMdcKeyName>
+            <includeMdcKeyName>event_type</includeMdcKeyName>
+            <includeMdcKeyName>request_id</includeMdcKeyName>
+            <customFields>{"service":"self-healing-ops-mock-service"}</customFields>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT_JSON" />
+    </root>
+
+</configuration>
