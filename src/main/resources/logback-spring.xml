@@ -15,8 +15,20 @@
         </encoder>
     </appender>
 
+    <appender name="FILE_JSON" class="ch.qos.logback.core.FileAppender">
+        <file>logs/mock-service.log</file>
+        <append>true</append>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>failure_mode</includeMdcKeyName>
+            <includeMdcKeyName>event_type</includeMdcKeyName>
+            <includeMdcKeyName>request_id</includeMdcKeyName>
+            <customFields>{"service":"self-healing-ops-mock-service"}</customFields>
+        </encoder>
+    </appender>
+
     <root level="INFO">
         <appender-ref ref="STDOUT_JSON" />
+        <appender-ref ref="FILE_JSON" />
     </root>
 
 </configuration>

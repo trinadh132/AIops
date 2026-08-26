@@ -1,0 +1,502 @@
+[
+  {
+    "failure_type": "bad_deploy_error_spike",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Sudden spike in NullPointerExceptions immediately following a deploy",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Requests to `GET /api/orders/{id}` fail with a simulated NullPointerException immediately after activation (standing in for \"immediately after a deploy\" in the real system) \u2014 73% failed in a captured 30-request run (22/30), higher than this mode's original ~60% estimate; treat the estimate as approximate rather than exact.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:32.352542+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=BAD_DEPLOY_ERROR_SPIKE http_status=500 message=\\\"NullPointerException in OrderService (regression from latest deploy)\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-10\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"BAD_DEPLOY_ERROR_SPIKE\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- The defining signature is timing: error rate jumps sharply at a point in time that lines up with a deploy event, not a gradual climb like a leak or a threshold-crossing like pool/thread exhaustion.\n- Error type is a code-level exception (NPE), not an infrastructure symptom (timeout, connection refused) \u2014 points squarely at the newly shipped code rather than environment or capacity.",
+    "source_file": "bad_deploy_error_spike.md"
+  },
+  {
+    "failure_type": "bad_deploy_error_spike",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Sudden spike in NullPointerExceptions immediately following a deploy",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Confirm the error onset time lines up exactly with a deploy event \u2014 check deploy/release logs against the first occurrence of the error.\n2. Check whether the error rate matches the rollout percentage (e.g., if 60% of instances got the new build and 60% of requests fail, that's strong confirmation it's the new code, not something environmental).\n3. Get the actual stack trace, not just the exception type \u2014 identifies exactly which code path is null-unsafe.\n4. Diff the new deploy against the previous known-good version to identify the specific change most likely responsible.",
+    "source_file": "bad_deploy_error_spike.md"
+  },
+  {
+    "failure_type": "bad_deploy_error_spike",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Sudden spike in NullPointerExceptions immediately following a deploy",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Halt the rollout if it's still in progress (stop promoting the bad build to more instances) | Auto-executable per the risk threshold rule; contains blast radius without touching already-affected instances |\n| High | Roll back to the previous known-good deploy | Needs approval \u2014 a rollback is a production change with its own risk (e.g., losing forward-compatible data changes) |\n| High | Hotfix and redeploy the specific null-check/bug fix | Needs approval \u2014 new code change under incident pressure carries elevated regression risk |",
+    "source_file": "bad_deploy_error_spike.md"
+  },
+  {
+    "failure_type": "bad_deploy_error_spike",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Sudden spike in NullPointerExceptions immediately following a deploy",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- The primary remediation *is* a rollback; if the rollback itself fails to resolve the error spike, that's a strong signal the root cause isn't actually the deploy (re-open diagnosis rather than attempting a second rollback).\n- If a hotfix is deployed instead of a full rollback and it doesn't resolve the issue, fall back to the full rollback to the previous known-good build rather than iterating further hotfixes live in production.",
+    "source_file": "bad_deploy_error_spike.md"
+  },
+  {
+    "failure_type": "bad_deploy_error_spike",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Sudden spike in NullPointerExceptions immediately following a deploy",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Release Engineering\" and \"Managing Incidents\" \u2014 background on canary/rollout practices and why rollback is generally preferred over a live hotfix under incident pressure.\n- danluu/post-mortems (GitHub) \u2014 several publicly documented incidents follow this exact \"deploy \u2192 error spike \u2192 rollback\" pattern; useful for calibrating response speed expectations, not reproduced here.",
+    "source_file": "bad_deploy_error_spike.md"
+  },
+  {
+    "failure_type": "config_drift",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing citing a missing or invalid required config value",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Requests to `GET /api/orders/{id}` fail citing a missing or invalid required config value \u2014 20% failed in a captured 30-request run (6/30), lower than this mode's original ~30% estimate; treat the estimate as approximate rather than exact.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:35.6059464+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=CONFIG_DRIFT http_status=500 message=\\\"Missing or invalid required configuration: ORDERS_DB_URL\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-8\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"CONFIG_DRIFT\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- Failures are intermittent rather than total, which is a useful tell: it suggests inconsistency between instances (some have the correct config, some don't) rather than a config value that's wrong everywhere.\n- No corresponding code deploy \u2014 this is a configuration-only change, which narrows the investigation away from application logic.",
+    "source_file": "config_drift.md"
+  },
+  {
+    "failure_type": "config_drift",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing citing a missing or invalid required config value",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Diff the actual running config on affected instances against the source-of-truth (source control, config management system) to find exactly what's different and where.\n2. Check whether the failure rate matches the proportion of instances with drifted config \u2014 strong confirmation if it lines up.\n3. Check the config management/deployment pipeline's own logs for partial-failure events around the time drift started.\n4. Confirm the config value in question is valid in format and range, not just present \u2014 \"present but malformed\" is a common variant of this failure.",
+    "source_file": "config_drift.md"
+  },
+  {
+    "failure_type": "config_drift",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing citing a missing or invalid required config value",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Re-sync affected instances to the source-of-truth config (re-run the config push/deployment for just the drifted value) | Auto-executable per the risk threshold rule if the source-of-truth value is already known-good |\n| Medium | Restart affected instances after re-sync to ensure the new config is actually picked up | Needs approval if restart causes a brief availability dip; otherwise low |\n| High | Change the actual config value itself (not just re-sync to existing source-of-truth) | Needs approval \u2014 this is a genuine production config change, not a drift correction, and needs the same review as any config change |",
+    "source_file": "config_drift.md"
+  },
+  {
+    "failure_type": "config_drift",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing citing a missing or invalid required config value",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If re-syncing to source-of-truth doesn't resolve the errors, the source-of-truth value itself may be wrong \u2014 revert the config management system to the last known-good state before the drift was introduced.\n- If a direct config value change was made and causes new problems, revert to the previous value and treat the original drift as the lower-risk state until a proper fix is planned.",
+    "source_file": "config_drift.md"
+  },
+  {
+    "failure_type": "config_drift",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing citing a missing or invalid required config value",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Configuration Design and Best Practices\" \u2014 background on treating config as code and why drift between declared and running state is a common incident source.",
+    "source_file": "config_drift.md"
+  },
+  {
+    "failure_type": "connection_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "503s with 'No available connections in pool'",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- HTTP 503 responses from `GET /api/orders/{id}` \u2014 70% of requests failed in a captured 30-request run (21/30), matching the documented ~70% rate.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:03.0731514+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=CONNECTION_POOL_EXHAUSTION http_status=503 message=\\\"No available connections in pool\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-3\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"CONNECTION_POOL_EXHAUSTION\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- `ops_mock_failure_injections_total{failure_mode=\"CONNECTION_POOL_EXHAUSTION\"}` increments on `/actuator/prometheus`.\n- No corresponding rise in latency for requests that *do* succeed \u2014 the failure is binary (get a connection or get rejected), not a slowdown.",
+    "source_file": "connection_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "connection_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "503s with 'No available connections in pool'",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Check `GET /admin/failures` (or the equivalent pool metrics endpoint in a real service) to confirm which failure mode is active and how many requests are in flight \u2014 rules out a coincidental unrelated issue.\n2. Look at the pool's active/idle/waiting connection counts over time. A pool pinned at max with zero idle connections and a growing wait queue points at exhaustion; a pool that cycles normally but occasionally spikes points at bursty traffic instead.\n3. Check whether active connection count grows monotonically even during quiet periods \u2014 that's the signature of a leak, not legitimate demand.\n4. Correlate with downstream dependency latency/error dashboards. If a downstream DB or service degraded around the same time, connections are likely being held open waiting on it rather than leaking in application code.\n5. Check recent deploys and traffic volume graphs for the same window \u2014 rule out a legitimate demand increase before assuming a bug.",
+    "source_file": "connection_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "connection_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "503s with 'No available connections in pool'",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Restart the affected instance(s) to release any leaked connections and reset the pool | Auto-executable per the risk threshold rule; buys time while root cause is found |\n| Low | Bump the connection pool `max-size` config within existing DB connection limits | Auto-executable if within a pre-approved ceiling; verify the DB can support the new max concurrent connections first |\n| Medium | Add or tighten a connection-acquisition timeout so requests fail fast instead of queuing indefinitely | Needs approval \u2014 changes client-visible error behavior |\n| High | Patch and redeploy the code path suspected of leaking connections | Needs approval \u2014 code change carries regression risk |",
+    "source_file": "connection_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "connection_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "503s with 'No available connections in pool'",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If a pool size increase doesn't help or the DB starts rejecting connections, revert the pool config to its previous value and restart the affected instance(s).\n- If a code deploy for a leak fix makes things worse (new errors, other regressions), roll back to the previous known-good build/image and re-open the incident before retrying.",
+    "source_file": "connection_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "connection_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "503s with 'No available connections in pool'",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Managing Load\" and \"Addressing Cascading Failures\" chapters \u2014 background on connection saturation and load shedding.\n- AWS \"Timeouts, retries, and backoff with jitter\" builders' library article \u2014 informs the timeout/backoff remediation option above.",
+    "source_file": "connection_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "db_deadlock",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing with a database lock-wait timeout",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Requests to `GET /api/orders/{id}` fail with a lock-wait timeout error \u2014 63% failed in a captured 30-request run (19/30), noticeably higher than this mode's original ~40% estimate; treat the estimate as approximate rather than exact.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:06.2447283+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=DB_DEADLOCK http_status=500 message=\\\"Lock wait timeout exceeded on orders table\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-7\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"DB_DEADLOCK\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- Failure rate is roughly constant rather than climbing \u2014 distinguishes this from pool exhaustion or a leak.\n- No corresponding disk, memory, or CPU pressure on the DB host; the DB itself is healthy, transactions are just blocking each other.",
+    "source_file": "db_deadlock.md"
+  },
+  {
+    "failure_type": "db_deadlock",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing with a database lock-wait timeout",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Pull the DB's deadlock log (e.g. `SHOW ENGINE INNODB STATUS` or equivalent) to see the exact statements and lock order involved, not just the app-side timeout.\n2. Check whether the transactions involved touch the same tables in a different order \u2014 the most common structural cause, usually visible directly in the deadlock graph.\n3. Look for any long-running or idle-in-transaction sessions active during the incident window; a single stuck transaction can be the common denominator across many otherwise-unrelated deadlocks.\n4. Check recent schema/migration history and index changes against the incident start time.\n5. Check write volume on the specific rows involved (e.g., a single popular order or shared counter) to see if this is hot-row contention rather than a general deadlock pattern.",
+    "source_file": "db_deadlock.md"
+  },
+  {
+    "failure_type": "db_deadlock",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing with a database lock-wait timeout",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Let existing automatic retry-with-backoff on deadlock-killed transactions absorb the errors | Auto-executable; deadlocks are expected to be transient and self-resolving when retry logic exists |\n| Medium | Kill a specific long-running or blocking session identified in diagnosis | Needs approval \u2014 killing the wrong session can cause data loss or a bigger outage |\n| Medium | Add a missing index or adjust query patterns to reduce lock scope | Needs approval \u2014 schema changes need review even when low-risk in principle |\n| High | Reorder transaction logic in application code to enforce consistent lock acquisition order | Needs approval \u2014 code change, requires testing before deploy |",
+    "source_file": "db_deadlock.md"
+  },
+  {
+    "failure_type": "db_deadlock",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing with a database lock-wait timeout",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If killing a session doesn't resolve the deadlock rate, the session wasn't the root cause \u2014 re-diagnose rather than killing further sessions speculatively.\n- If a schema/index change increases load or causes lock contention elsewhere, revert the migration and restore the previous index configuration.",
+    "source_file": "db_deadlock.md"
+  },
+  {
+    "failure_type": "db_deadlock",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Requests failing with a database lock-wait timeout",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Testing for Reliability\" and dependency-management sections \u2014 general framing for reasoning about compounding failure interactions like lock contention.\n- MySQL/PostgreSQL deadlock documentation (vendor docs) \u2014 standard reference for reading deadlock graphs, not reproduced here.",
+    "source_file": "db_deadlock.md"
+  },
+  {
+    "failure_type": "disk_full",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Requests failing with a write error, ~70% error rate",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Requests to `GET /api/orders/{id}` fail with a write error \u2014 70% failed in a captured 30-request run (21/30), higher than this mode's original ~50% estimate; treat the estimate as approximate rather than exact.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:29.1347059+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=DISK_FULL http_status=500 message=\\\"Write failed: no space left on device\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-7\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"DISK_FULL\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- Disk usage metrics (if available) show the volume near or at 100% utilization.\n- Errors are specific to operations that write to disk (logs, temp files, local writes); read-only or in-memory operations are unaffected, which helps distinguish this from a general outage.",
+    "source_file": "disk_full.md"
+  },
+  {
+    "failure_type": "disk_full",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Requests failing with a write error, ~70% error rate",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Check disk usage by directory (a `du`-style breakdown) to identify what's actually consuming space \u2014 don't assume logs without checking.\n2. Check log rotation configuration and confirm it's actually running (a misconfigured rotation is a very common root cause and quick to rule in or out).\n3. Look for unusually large or unusually numerous files with recent modification times \u2014 points at whatever's actively writing.\n4. Check whether disk usage growth correlates with a specific deploy, feature flag, or traffic pattern change.",
+    "source_file": "disk_full.md"
+  },
+  {
+    "failure_type": "disk_full",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Requests failing with a write error, ~70% error rate",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Trigger log rotation / compress and archive old logs to free immediate space | Auto-executable per the risk threshold rule; safe, non-destructive to current data |\n| Medium | Delete confirmed-safe temp files (e.g., files in a known scratch directory older than the retention window) | Needs approval \u2014 deleting the wrong thing is high-blast-radius even if the intent is safe |\n| High | Delete or move application data files to free space | Needs approval \u2014 direct risk of permanent data loss if the wrong files are targeted |\n| High | Expand the volume size | Needs approval \u2014 infrastructure change, may require downtime depending on platform |",
+    "source_file": "disk_full.md"
+  },
+  {
+    "failure_type": "disk_full",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Requests failing with a write error, ~70% error rate",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- Because most remediation here is deletion, there's generally no \"rollback\" for data actually removed \u2014 this is why anything beyond log rotation requires explicit human approval and a second pair of eyes before executing.\n- If a volume expansion doesn't resolve the issue (something is still consuming space faster than expected), treat that as a signal of an active runaway writer and re-run diagnosis rather than expanding again.",
+    "source_file": "disk_full.md"
+  },
+  {
+    "failure_type": "disk_full",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Requests failing with a write error, ~70% error rate",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Postmortem Culture\" and \"Practical Alerting\" \u2014 background on why destructive remediations need a higher approval bar than restarts or config tweaks.\n- AWS EBS/EFS volume monitoring and expansion documentation \u2014 standard reference for the expansion step, not reproduced here.",
+    "source_file": "disk_full.md"
+  },
+  {
+    "failure_type": "memory_leak",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Heap usage climbing steadily toward the OOM threshold",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Simulated heap usage climbs by ~40MB every ~5 seconds with no corresponding drop, rather than the normal sawtooth pattern of allocation followed by GC reclaiming memory. A captured run climbed from 296MB to 1056MB over exactly 21 growth ticks (~105s) before crossing the 1024MB threshold.\n- Structured log line during growth (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:47.9098864+05:30\",\"@version\":\"1\",\"message\":\"memory_usage_mb=296 threshold_mb=1024 message=\\\"Simulated heap usage growing\\\"\",\"logger_name\":\"com.opsagent.mock.service.BackgroundSimulator\",\"thread_name\":\"scheduling-1\",\"level\":\"WARN\",\"level_value\":30000,\"failure_mode\":\"MEMORY_LEAK\",\"event_type\":\"memory_growth\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- If left unaddressed, usage eventually crosses the configured threshold and escalates into an OOM_KILL event \u2014 see that runbook for the terminal failure. Worth noting: the terminal event itself is tagged `\"failure_mode\":\"OOM_KILL\"` even though this incident started as a `MEMORY_LEAK` \u2014 don't assume the `failure_mode` field stays constant across an incident's full timeline:\n```json\n{\"@timestamp\":\"2026-08-11T15:27:22.9143141+05:30\",\"@version\":\"1\",\"message\":\"memory_usage_mb=1056 message=\\\"Simulated OOM: process killed by OS, container restarting\\\"\",\"logger_name\":\"com.opsagent.mock.service.BackgroundSimulator\",\"thread_name\":\"scheduling-1\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"OOM_KILL\",\"event_type\":\"process_killed\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- The `ops_mock_active_failure_modes` gauge stays elevated the entire time the leak is active, unlike request-driven failure modes that only show up under load.",
+    "source_file": "memory_leak.md"
+  },
+  {
+    "failure_type": "memory_leak",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Heap usage climbing steadily toward the OOM threshold",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Confirm the growth pattern is monotonic (only up, no GC-driven drops) rather than a normal high-but-stable working set \u2014 a heap that's merely large but stable is not a leak.\n2. Pull heap dumps at two points in time and diff the retained object counts/sizes \u2014 the object type with disproportionate growth is almost always the leak source.\n3. Check for recent deploys that introduced new caching, new listener registrations, or a new dependency version around the time growth started.\n4. Correlate growth rate against request volume \u2014 a leak that scales with request count points at a per-request object being retained; a leak that grows even with zero traffic points at a background job or scheduled task.",
+    "source_file": "memory_leak.md"
+  },
+  {
+    "failure_type": "memory_leak",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Heap usage climbing steadily toward the OOM threshold",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Restart the affected instance(s) before the threshold is crossed, to avoid an uncontrolled OOM kill | Auto-executable per the risk threshold rule; buys time, does not fix root cause |\n| Medium | Add a size bound / eviction policy (e.g., LRU with a max size) to the suspected unbounded cache | Needs approval \u2014 behavior change to caching semantics |\n| Medium | Roll back to the previous deploy if growth correlates with a recent release | Needs approval per the general deploy-rollback policy |\n| High | Patch the leaking code path (fix listener cleanup, bound collection growth) and redeploy | Needs approval \u2014 code change carries regression risk |",
+    "source_file": "memory_leak.md"
+  },
+  {
+    "failure_type": "memory_leak",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Heap usage climbing steadily toward the OOM threshold",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If a preventive restart doesn't stop the leak from recurring shortly after, that confirms the leak is active-traffic-driven rather than one-off \u2014 escalate to root-cause investigation rather than repeated restarts.\n- If a rollback to a previous deploy resolves the growth, keep the rollback in place and re-attempt the newer release only after the leak is fixed and verified under load.",
+    "source_file": "memory_leak.md"
+  },
+  {
+    "failure_type": "memory_leak",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Heap usage climbing steadily toward the OOM threshold",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Effective Troubleshooting\" \u2014 general methodology for progressive-degradation issues like leaks.\n- JVM heap dump analysis practices (Eclipse MAT / VisualVM documentation) \u2014 standard tooling reference, not reproduced here.",
+    "source_file": "memory_leak.md"
+  },
+  {
+    "failure_type": "oom_kill",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Process killed by the OS after heap usage crossed the OOM threshold",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- The process is killed outright rather than returning errors \u2014 visible as a hard availability gap (connection refused / no response) rather than a specific HTTP error code.\n- Structured log line at the kill (captured from a real run \u2014 activating `OOM_KILL` directly, not via a prior `MEMORY_LEAK` activation):\n```json\n{\"@timestamp\":\"2026-08-11T15:29:42.9104072+05:30\",\"@version\":\"1\",\"message\":\"memory_usage_mb=1056 message=\\\"Simulated OOM: process killed by OS, container restarting\\\"\",\"logger_name\":\"com.opsagent.mock.service.BackgroundSimulator\",\"thread_name\":\"scheduling-1\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"OOM_KILL\",\"event_type\":\"process_killed\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- This is almost always the terminal event of a Memory Leak that went unaddressed \u2014 usage climbs steadily and then crosses the threshold, at which point this event fires. Worth noting from the real capture: even when `OOM_KILL` is activated directly (not via `MEMORY_LEAK`), the growth ticks leading up to the kill are still tagged `\"failure_mode\":\"MEMORY_LEAK\"` in the log \u2014 only the final `process_killed` line switches to `\"failure_mode\":\"OOM_KILL\"`. Don't assume the `failure_mode` field is constant across an incident's timeline; anything filtering logs by that field alone will miss the growth phase of an OOM incident.\n- After the kill, the process/container restarts and memory usage resets to baseline \u2014 so by the time someone investigates, the live symptom may already be gone, and only logs/metrics history shows what happened.",
+    "source_file": "oom_kill.md"
+  },
+  {
+    "failure_type": "oom_kill",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Process killed by the OS after heap usage crossed the OOM threshold",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Check memory usage history in the minutes leading up to the kill \u2014 a steady climb points at a leak (go to that runbook); a sudden step-up points at a legitimate burst instead.\n2. Check whether this is a repeated/periodic event (kill, restart, climb, kill again) versus a one-off \u2014 repetition strongly confirms an active leak rather than a one-time burst.\n3. If the container/orchestrator captured a heap dump or core dump at kill time, use it the same way as in the Memory Leak runbook to identify what was retained.\n4. Check the configured memory limit against actual healthy-state usage \u2014 if healthy usage is already close to the limit, the limit itself may simply be undersized.",
+    "source_file": "oom_kill.md"
+  },
+  {
+    "failure_type": "oom_kill",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Process killed by the OS after heap usage crossed the OOM threshold",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Confirm the automatic restart succeeded and the instance is healthy again | Auto-executable per the risk threshold rule; usually already handled by the orchestrator, but confirm rather than assume |\n| Medium | Raise the memory limit if healthy-state usage is genuinely close to the current limit | Needs approval \u2014 infrastructure/cost change, and can mask a real leak if applied without diagnosis |\n| High | Treat as a Memory Leak incident and follow that runbook's remediation (restart cadence, cache bounding, code fix) | Needs approval \u2014 see the Memory Leak runbook for the specific risk tiers of each option |",
+    "source_file": "oom_kill.md"
+  },
+  {
+    "failure_type": "oom_kill",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Process killed by the OS after heap usage crossed the OOM threshold",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If raising the memory limit doesn't stop repeated kills, revert the limit change \u2014 a bigger limit alone won't fix an active leak, it just delays the same outcome.\n- Follow the Memory Leak runbook's rollback plan if remediation proceeds down that path instead.",
+    "source_file": "oom_kill.md"
+  },
+  {
+    "failure_type": "oom_kill",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "high",
+    "symptoms_summary": "Process killed by the OS after heap usage crossed the OOM threshold",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Effective Troubleshooting\" \u2014 general methodology, referenced from the Memory Leak runbook as well since these two failure modes share a root cause chain.\n- Kubernetes / container orchestrator OOM-kill documentation (vendor docs) \u2014 standard reference for how OOM kill detection and container restart behavior works, not reproduced here.",
+    "source_file": "oom_kill.md"
+  },
+  {
+    "failure_type": "retry_storm",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Request rate spikes past capacity as retries compound on top of retries",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Requests to `GET /api/orders/{id}` start failing once request rate exceeds 50 requests in a 10-second window \u2014 confirmed in a captured 60-request concurrent burst, where the first 50 succeeded and the remaining 10 failed once the window count crossed the threshold.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:41.8711662+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=RETRY_STORM http_status=503 message=\\\"Request rate 51/window exceeds gateway capacity; clients are retrying and amplifying load\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-32\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"RETRY_STORM\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- Request volume climbs faster than any plausible organic traffic growth \u2014 a sharp, sustained step-up rather than a gradual trend, the signature of retries compounding on top of an initial failure rather than genuine new demand.\n- Often follows shortly after an unrelated transient failure (a blip that triggered client-side retries), so the timeline usually shows a small initial error spike followed by a much larger volume spike.",
+    "source_file": "retry_storm.md"
+  },
+  {
+    "failure_type": "retry_storm",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Request rate spikes past capacity as retries compound on top of retries",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Confirm the volume spike timeline: does it follow a smaller initial error event? A retry storm typically has a clear \"trigger, then amplify\" shape rather than starting large.\n2. Check whether requests are genuinely distinct (new user actions) or the same logical request repeated many times \u2014 request/trace IDs or idempotency keys make this visible if present.\n3. Check for retry configuration (max attempts, backoff strategy, jitter) in the calling client(s) \u2014 absence of backoff/jitter is the most common structural cause.\n4. Check whether multiple layers in the call path are each independently retrying, which multiplies the effective retry count beyond what any single layer's config would suggest.",
+    "source_file": "retry_storm.md"
+  },
+  {
+    "failure_type": "retry_storm",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Request rate spikes past capacity as retries compound on top of retries",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Enable/verify rate limiting or load shedding at the service boundary to protect it while the storm subsides | Auto-executable per the risk threshold rule; contains impact without touching client behavior |\n| Medium | Return a `Retry-After` header / explicit backoff signal to reduce client-side retry aggressiveness | Needs approval \u2014 changes client-visible contract |\n| High | Coordinate with calling teams to add backoff + jitter to their retry logic | Needs approval \u2014 cross-team change, can't be executed unilaterally |",
+    "source_file": "retry_storm.md"
+  },
+  {
+    "failure_type": "retry_storm",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Request rate spikes past capacity as retries compound on top of retries",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If rate limiting causes legitimate traffic to be dropped along with the retry storm, raise the limit or add prioritization (e.g., by client ID) rather than removing the limit entirely.\n- Once the originating trigger event is resolved and backoff/jitter is in place client-side, monitor request volume to confirm it returns to baseline rather than assuming the storm won't recur.",
+    "source_file": "retry_storm.md"
+  },
+  {
+    "failure_type": "retry_storm",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "medium",
+    "symptoms_summary": "Request rate spikes past capacity as retries compound on top of retries",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- AWS \"Timeouts, retries, and backoff with jitter\" builders' library article \u2014 the standard reference for why unjittered retries cause exactly this failure mode.\n- Google SRE Book, \"Addressing Cascading Failures\" \u2014 covers retry storms as a specific instance of cascading failure.",
+    "source_file": "retry_storm.md"
+  },
+  {
+    "failure_type": "slow_downstream_dependency",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Every request latent 2-5s, logged as a high_latency warning followed by a normal success",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Every request to `GET /api/orders/{id}` succeeds, but latency balloons to 2-5s (captured range: 2186-4673ms across a 5-request sample) vs. a normal baseline well under 100ms.\n- Each slow request logs two lines, not one: a `high_latency` WARN carrying the actual delay, immediately followed by the normal `request_success` INFO line for the same `request_id` \u2014 the request never errors, it's purely a latency symptom.\n- Structured log line (captured from a real run \u2014 the `high_latency` warning):\n```json\n{\"@timestamp\":\"2026-08-11T15:25:13.2044154+05:30\",\"@version\":\"1\",\"message\":\"delay_ms=3810 message=\\\"Downstream dependency degraded\\\"\",\"logger_name\":\"com.opsagent.mock.controller.OrdersController\",\"thread_name\":\"http-nio-8080-exec-8\",\"level\":\"WARN\",\"level_value\":30000,\"event_type\":\"high_latency\",\"request_id\":\"ce581d44-fbc1-4cc5-ac3e-db0254ed9678\",\"failure_mode\":\"SLOW_DOWNSTREAM_DEPENDENCY\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- No error rate increase \u2014 this is a pure latency degradation, which makes it easy to miss on error-rate-only alerting and easy to confuse with generic \"the service is slow\" complaints.\n- p50/p99 latency dashboards shift together (every request affected) rather than just the tail, distinguishing this from an isolated slow query or GC pause.",
+    "source_file": "slow_downstream_dependency.md"
+  },
+  {
+    "failure_type": "slow_downstream_dependency",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Every request latent 2-5s, logged as a high_latency warning followed by a normal success",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Check the downstream dependency's own health/latency dashboards directly \u2014 if it shows the same elevated latency independently, the root cause is upstream of this service, not in it.\n2. Check network-level metrics (RTT, retransmits, DNS resolution time) between this service and the dependency to rule out a network path issue before assuming an application problem.\n3. Compare current call volume/pattern against baseline \u2014 a change in call shape (more calls, larger payloads) can look identical to a dependency slowdown from the caller's side.\n4. Check whether a circuit breaker or timeout is already configured and whether it's actually tripping \u2014 if latency is elevated but no timeouts fire, requests may be queuing rather than failing fast.",
+    "source_file": "slow_downstream_dependency.md"
+  },
+  {
+    "failure_type": "slow_downstream_dependency",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Every request latent 2-5s, logged as a high_latency warning followed by a normal success",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Tighten client-side timeouts so slow calls fail fast instead of holding connections/threads for the full 2-5s | Auto-executable per the risk threshold rule; trades a slow success for a fast, retriable failure |\n| Low | Enable/verify a circuit breaker around the downstream call so repeated slow calls stop compounding into thread pool pressure elsewhere | Auto-executable if a circuit breaker library is already wired in |\n| Medium | Add or extend caching for the slow downstream call | Needs approval \u2014 cache staleness has correctness implications |\n| High | Fail over to a backup/secondary instance of the dependency, if one exists | Needs approval \u2014 failover carries its own risk (data consistency, split-brain) |",
+    "source_file": "slow_downstream_dependency.md"
+  },
+  {
+    "failure_type": "slow_downstream_dependency",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Every request latent 2-5s, logged as a high_latency warning followed by a normal success",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If tightened timeouts cause an unacceptable rise in false-positive failures (dependency was actually fine, just briefly slow), loosen the timeout back toward its previous value and rely on the circuit breaker instead.\n- If a failover was triggered and the secondary dependency shows problems of its own, fail back to primary once primary latency has recovered.",
+    "source_file": "slow_downstream_dependency.md"
+  },
+  {
+    "failure_type": "slow_downstream_dependency",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Every request latent 2-5s, logged as a high_latency warning followed by a normal success",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Addressing Cascading Failures\" and \"Managing Load\" \u2014 background on why latency-only degradations are dangerous and how timeouts/circuit breakers contain them.\n- AWS \"Timeouts, retries, and backoff with jitter\" builders' library article.",
+    "source_file": "slow_downstream_dependency.md"
+  },
+  {
+    "failure_type": "thread_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Requests failing once concurrent in-flight count exceeds pool capacity",
+    "section": "symptoms",
+    "chunk_index": 0,
+    "content": "- Requests to `GET /api/orders/{id}` start failing once concurrent in-flight requests exceed the configured pool capacity (20 in the mock service) \u2014 60% failed in a captured 100-request concurrent burst (60/100), once in-flight count climbed past 20.\n- Structured log line (captured from a real run):\n```json\n{\"@timestamp\":\"2026-08-11T15:50:51.2238032+05:30\",\"@version\":\"1\",\"message\":\"failure_mode=THREAD_POOL_EXHAUSTION http_status=503 message=\\\"Thread pool exhausted: 37 concurrent requests exceed capacity 20\\\"\",\"logger_name\":\"com.opsagent.mock.exception.GlobalExceptionHandler\",\"thread_name\":\"http-nio-8080-exec-24\",\"level\":\"ERROR\",\"level_value\":40000,\"failure_mode\":\"THREAD_POOL_EXHAUSTION\",\"event_type\":\"simulated_failure\",\"service\":\"self-healing-ops-mock-service\"}\n```\n- The error message reports the actual concurrent count at rejection time (e.g. `37`, `38`, `60` in the captured run) rather than a fixed number \u2014 useful signal for how far past the 20-request threshold the burst pushed.\n- Failures appear specifically under concurrent load (e.g., a load test or traffic burst) and disappear once concurrency drops back below the threshold \u2014 unlike connection pool exhaustion, this tracks in-flight request count, not connections held over time.\n- `GET /admin/failures` shows the current `inFlightRequests` count, useful for confirming the pool is genuinely saturated versus some other 503 cause.",
+    "source_file": "thread_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "thread_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Requests failing once concurrent in-flight count exceeds pool capacity",
+    "section": "diagnosis_steps",
+    "chunk_index": 0,
+    "content": "1. Check in-flight request count / thread pool active count at the time of the incident against the configured pool size \u2014 confirms genuine exhaustion versus another 503 cause.\n2. Check whether request duration increased around the same time (points at a slow downstream holding threads longer) versus request volume increased (points at a genuine traffic burst).\n3. Check for any recently introduced blocking calls on request-handling threads.\n4. Check whether the burst correlates with a specific caller/client (helps determine whether this is a capacity problem or a misbehaving upstream consumer).",
+    "source_file": "thread_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "thread_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Requests failing once concurrent in-flight count exceeds pool capacity",
+    "section": "remediation",
+    "chunk_index": 0,
+    "content": "| Risk | Action | Notes |\n|---|---|---|\n| Low | Increase the thread pool size within the box's available resources | Auto-executable per the risk threshold rule; verify CPU/memory headroom exists first |\n| Low | Shed load by rejecting excess requests fast (already partially happening via the 503) rather than queuing indefinitely | Auto-executable; confirm queue depth limit is sane, not zero and not unbounded |\n| Medium | Add horizontal scaling (more instances) to absorb the burst | Needs approval \u2014 infrastructure/cost change |\n| High | Move a blocking operation off the request thread to an async/background path | Needs approval \u2014 code change, requires testing |",
+    "source_file": "thread_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "thread_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Requests failing once concurrent in-flight count exceeds pool capacity",
+    "section": "rollback_plan",
+    "chunk_index": 0,
+    "content": "- If a larger thread pool causes CPU contention or increased context-switch overhead instead of helping, revert to the previous pool size and address the underlying blocking/slow call instead.\n- If added instances don't reduce per-instance saturation (e.g., the load balancer isn't distributing evenly), investigate the load balancer configuration rather than scaling further.",
+    "source_file": "thread_pool_exhaustion.md"
+  },
+  {
+    "failure_type": "thread_pool_exhaustion",
+    "service": "self-healing-ops-mock-service",
+    "risk_level": "low",
+    "symptoms_summary": "Requests failing once concurrent in-flight count exceeds pool capacity",
+    "section": "references",
+    "chunk_index": 0,
+    "content": "- Google SRE Book, \"Managing Load\" \u2014 background on load shedding and capacity planning that informs the remediation ranking here.\n- AWS \"Managing Latency, Health, and Availability\" builders' library articles.",
+    "source_file": "thread_pool_exhaustion.md"
+  }
+]

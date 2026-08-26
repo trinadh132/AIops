@@ -1,0 +1,42 @@
+[
+  {
+    "query": "Orders API returning 503s, logs show 'No available connections in pool' under load",
+    "expected_failure_type": "connection_pool_exhaustion"
+  },
+  {
+    "query": "Two transactions stuck waiting on each other, DB driver logs a deadlock exception and rolls one back",
+    "expected_failure_type": "db_deadlock"
+  },
+  {
+    "query": "Requests hang for several seconds waiting on a downstream call that used to respond instantly",
+    "expected_failure_type": "slow_downstream_dependency"
+  },
+  {
+    "query": "Heap usage climbing steadily over hours, GC pauses getting longer, no corresponding traffic increase",
+    "expected_failure_type": "memory_leak"
+  },
+  {
+    "query": "Writes to the data directory failing, df shows 100% usage on the application volume",
+    "expected_failure_type": "disk_full"
+  },
+  {
+    "query": "New requests rejected with 'thread pool exhausted', active thread count pinned at max",
+    "expected_failure_type": "thread_pool_exhaustion"
+  },
+  {
+    "query": "Error rate jumped from near-zero to 40% right after the latest release rolled out",
+    "expected_failure_type": "bad_deploy_error_spike"
+  },
+  {
+    "query": "Service behaving inconsistently across instances, one node has a stale config value the others don't",
+    "expected_failure_type": "config_drift"
+  },
+  {
+    "query": "Request volume spiking well above normal traffic, clients aggressively retrying failed calls",
+    "expected_failure_type": "retry_storm"
+  },
+  {
+    "query": "Container restarted unexpectedly, kernel log shows the process was killed for exceeding its memory limit",
+    "expected_failure_type": "oom_kill"
+  }
+]
