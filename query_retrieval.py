@@ -40,7 +40,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # have to come from the same model or the distances are meaningless.
 EMBEDDING_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2:free"
 
-
+load_dotenv()
 def get_db_connection():
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
