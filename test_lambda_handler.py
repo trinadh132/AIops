@@ -92,6 +92,18 @@ class FakeGraph:
         }
 
 
+class FakeRemediator:
+    """Stands in for RemediationRouter; routing itself is tested in
+    test_remediation.py."""
+
+    def __init__(self):
+        self.routed = []
+
+    def route(self, run_id, failure_type, final_output, now=None):
+        self.routed.append((run_id, failure_type, final_output.get("status")))
+        return {"remediation_status": "awaiting_approval"}
+
+
 class AwsTestCase(unittest.TestCase):
     def setUp(self):
         env = patch.dict(os.environ, AWS_ENV)
@@ -231,6 +243,7 @@ class TestHandleAlarm(AwsTestCase):
     def setUp(self):
         super().setUp()
         self.store = RunStore(self.make_table())
+        self.remediator = FakeRemediator()
         self.logs = FakeLogsClient([{"events": log_events(
             '{"failure_mode":"DISK_FULL","message":"No space left on device"}',
             '{"failure_mode":"DISK_FULL","message":"No space left on device"}',
@@ -238,7 +251,7 @@ class TestHandleAlarm(AwsTestCase):
 
     def handle(self, message, graph):
         return lh.handle_alarm(message, store=self.store, logs_client=self.logs, graph=graph,
-                               log_group="/ecs/mock", service="mock-svc")
+                               remediator=self.remediator, log_group="/ecs/mock", service="mock-svc")
 
     def test_ok_transition_is_ignored(self):
         graph = FakeGraph()
@@ -260,6 +273,8 @@ class TestHandleAlarm(AwsTestCase):
         item = self.store.get(result["run_id"])
         self.assertEqual(item["status"], "completed")
         self.assertEqual(item["outcome"], "auto_recommend")
+        self.assertEqual(item["remediation_status"], "awaiting_approval")
+        self.assertEqual(self.remediator.routed, [(result["run_id"], "DISK_FULL", "auto_recommend")])
         self.assertEqual(item["log_line_count"], 2)
         self.assertIn("repeated 2x", item["log_excerpt"])  # condensed, not raw
 
@@ -287,6 +302,20 @@ class TestHandleAlarm(AwsTestCase):
         retry = self.handle(alarm_message(), FakeGraph())  # Lambda's async retry
         self.assertEqual(retry["outcome"], "auto_recommend")
 
+    def test_ok_transition_records_recovery_on_latest_run(self):
+        run = self.handle(alarm_message(changed="2026-09-29T12:00:00.000+0000"), FakeGraph())
+        ok = {**alarm_message(state="OK", changed="2026-09-29T12:03:30.000+0000"), "OldStateValue": "ALARM"}
+
+        result = self.handle(ok, FakeGraph())
+
+        self.assertEqual(result["recovered_run_id"], run["run_id"])
+        self.assertEqual(float(self.store.get(run["run_id"])["seconds_to_recover"]), 210.0)
+        self.assertIsNone(self.handle(ok, FakeGraph())["recovered_run_id"])  # recorded once
+
+    def test_ok_without_prior_run_is_harmless(self):
+        ok = {**alarm_message(state="OK"), "OldStateValue": "ALARM"}
+        self.assertIsNone(self.handle(ok, FakeGraph())["recovered_run_id"])
+
     def test_no_log_lines_falls_back_to_alarm_reason(self):
         self.logs = FakeLogsClient([{"events": []}])
         graph = FakeGraph()
@@ -298,7 +327,8 @@ class TestHandlerEntrypoint(AwsTestCase):
     def test_parses_sns_and_skips_non_alarm_messages(self):
         store = RunStore(self.make_table())
         graph = FakeGraph()
-        deps = {"store": store, "logs_client": FakeLogsClient([{"events": log_events("x")}]), "graph": graph}
+        deps = {"store": store, "logs_client": FakeLogsClient([{"events": log_events("x")}]), "graph": graph,
+                "remediator": FakeRemediator()}
         with patch.object(lh, "_deps", return_value=deps):
             results = lh.handler(sns_event("not json", {"hello": "world"}, alarm_message()), context=None)
         self.assertEqual(len(results), 1)
@@ -320,7 +350,7 @@ class TestHandlerEntrypoint(AwsTestCase):
         }
         with patch.dict(sys.modules, stubs), patch.dict(os.environ, {"OPENROUTER_API": "dummy"}):
             deps = {"store": store, "logs_client": FakeLogsClient([{"events": log_events("disk error")}]),
-                    "graph": ag.build_graph()}
+                    "graph": ag.build_graph(), "remediator": FakeRemediator()}
             with patch.object(lh, "_deps", return_value=deps):
                 [result] = lh.handler(sns_event(alarm_message()), context=None)
 

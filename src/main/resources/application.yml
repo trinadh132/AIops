@@ -18,3 +18,11 @@ logging:
   level:
     root: INFO
     com.opsagent.mock: INFO
+
+# Remediation executor (RemediationConfig): disabled unless a queue URL is set.
+remediation:
+  queue-url: ${REMEDIATION_QUEUE_URL:}
+  # Optional: point at a local SQS-compatible server (ElasticMQ/LocalStack).
+  sqs-endpoint: ${REMEDIATION_SQS_ENDPOINT:}
+  # Reject approved actions older than this (seconds).
+  max-age-seconds: ${REMEDIATION_MAX_AGE_SECONDS:3600}

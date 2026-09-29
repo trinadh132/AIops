@@ -100,6 +100,84 @@ class RunStore:
     def get(self, run_id: str) -> dict | None:
         return self._table.get_item(Key={"run_id": run_id}).get("Item")
 
+    # ---- approvals --------------------------------------------------------
+
+    def decide(self, run_id: str, decision: str, now: float | None = None) -> bool:
+        """pending -> approved/rejected, exactly once. This conditional write
+        is what makes approval links single-use: a second click, a replayed
+        link, or an approve racing a reject all lose here."""
+        status = {"approve": "approved", "reject": "rejected"}[decision]
+        return self._conditional_set(
+            run_id, {"approval_status": status, "decided_at": time.time() if now is None else now},
+            "#approval = :expected", {"#approval": "approval_status"}, {":expected": "pending"},
+        )
+
+    def revert_decision(self, run_id: str) -> bool:
+        """approved -> pending, used only when queueing the approved action
+        failed, so the approver's link works again instead of the run being
+        stuck as 'approved' with nothing queued."""
+        return self._conditional_set(
+            run_id, {"approval_status": "pending"},
+            "#approval = :expected", {"#approval": "approval_status"}, {":expected": "approved"},
+        )
+
+    def set_fields(self, run_id: str, fields: dict) -> bool:
+        return self._conditional_set(run_id, fields, "attribute_exists(run_id)", {}, {})
+
+    # ---- recovery (alarm back to OK) ----------------------------------------
+
+    def link_alarm(self, alarm_arn: str, run_id: str, now: float | None = None) -> None:
+        """Pointer item alarm#<arn> -> latest run_id. The OK notification
+        doesn't say which ALARM transition it ends, so this is how recovery
+        finds its run. Same table, distinct key prefix (single-table design)."""
+        now = time.time() if now is None else now
+        self._table.put_item(Item={
+            "run_id": f"alarm#{alarm_arn}",
+            "latest_run_id": run_id,
+            "expires_at": int(now + self._ttl_seconds),
+        })
+
+    def mark_recovered(self, alarm_arn: str, recovered_at: float) -> str | None:
+        """Records when the alarm returned to OK, and time-to-recover measured
+        from the run's alarm_raised_at. Returns the run_id, or None if there's
+        no run for this alarm or it was already marked."""
+        pointer = self.get(f"alarm#{alarm_arn}")
+        run = self.get(pointer["latest_run_id"]) if pointer else None
+        if not run:
+            return None
+        run_id = run["run_id"]
+        fields = {"recovered_at": recovered_at}
+        if "alarm_raised_at" in run:
+            fields["seconds_to_recover"] = round(recovered_at - float(run["alarm_raised_at"]), 1)
+        recorded = self._conditional_set(
+            run_id,
+            fields,
+            "attribute_exists(run_id) AND attribute_not_exists(recovered_at)", {}, {},
+        )
+        return run_id if recorded else None
+
+    def _conditional_set(self, run_id: str, fields: dict, condition: str,
+                         condition_names: dict, condition_values: dict) -> bool:
+        names, values, sets = dict(condition_names), dict(condition_values), []
+        for i, (key, value) in enumerate(fields.items()):
+            names[f"#u{i}"] = key
+            values[f":u{i}"] = to_dynamo(value)
+            sets.append(f"#u{i} = :u{i}")
+        kwargs = {
+            "Key": {"run_id": run_id},
+            "UpdateExpression": "SET " + ", ".join(sets),
+            "ConditionExpression": condition,
+            "ExpressionAttributeNames": names,
+            "ExpressionAttributeValues": values,
+        }
+        try:
+            self._table.update_item(**kwargs)
+        except ClientError as err:
+            if _is_conditional_failure(err):
+                return False
+            raise
+        return True
+
     def _finish(self, run_id, claim_id, status, fields, now) -> bool:
         """Returns False (instead of raising) when the claim was lost, so the
         caller can log it; the newer attempt owns the record now."""

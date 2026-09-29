@@ -18,14 +18,16 @@ import os
 logger = logging.getLogger("self_healing_ops.config")
 
 REQUIRED_KEYS = ("OPENROUTER_API", "DATABASE_URL")
+# Signs approval links; needed by both the agent and the approval handler.
+APPROVAL_KEYS = ("APPROVAL_HMAC_KEY",)
 
 
-def load_config(ssm_client=None) -> None:
+def load_config(ssm_client=None, required: tuple[str, ...] = REQUIRED_KEYS) -> None:
     prefix = os.environ.get("SSM_PARAMETER_PREFIX")
     if not prefix:
         return
 
-    missing = [k for k in REQUIRED_KEYS if not os.environ.get(k)]
+    missing = [k for k in required if not os.environ.get(k)]
     if not missing:
         return
 
@@ -51,6 +53,6 @@ def load_config(ssm_client=None) -> None:
     # Log names only, never values.
     logger.info("Loaded %d parameter(s) from SSM under %s: %s", len(loaded), prefix, sorted(loaded))
 
-    still_missing = [k for k in REQUIRED_KEYS if not os.environ.get(k)]
+    still_missing = [k for k in required if not os.environ.get(k)]
     if still_missing:
         raise RuntimeError(f"Missing required config {still_missing} (checked env and SSM {prefix})")

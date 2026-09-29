@@ -11,6 +11,7 @@
             <includeMdcKeyName>failure_mode</includeMdcKeyName>
             <includeMdcKeyName>event_type</includeMdcKeyName>
             <includeMdcKeyName>request_id</includeMdcKeyName>
+            <includeMdcKeyName>run_id</includeMdcKeyName>
             <customFields>{"service":"self-healing-ops-mock-service"}</customFields>
         </encoder>
     </appender>
@@ -22,6 +23,7 @@
             <includeMdcKeyName>failure_mode</includeMdcKeyName>
             <includeMdcKeyName>event_type</includeMdcKeyName>
             <includeMdcKeyName>request_id</includeMdcKeyName>
+            <includeMdcKeyName>run_id</includeMdcKeyName>
             <customFields>{"service":"self-healing-ops-mock-service"}</customFields>
         </encoder>
     </appender>
