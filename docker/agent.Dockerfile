@@ -5,7 +5,7 @@
 # Lambda handler (via awslambdaric) and the MCP server — each is just a
 # different command.
 
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
