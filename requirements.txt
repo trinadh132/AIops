@@ -1,18 +1,18 @@
-openai>=1.40.0
-psycopg2-binary>=2.9.9
-pgvector>=0.3.2
-python-frontmatter>=1.1.0
-python-dotenv>=1.0.1
-tiktoken>=0.7.0
-langgraph>=0.2.0
-requests>=2.31.0
-typing_extensions>=4.12.0
-boto3>=1.34.0
+openai>=3.19.2
+psycopg2-binary>=2.9.13
+pgvector>=0.5.0
+python-frontmatter>=1.3.0
+python-dotenv>=1.2.3
+tiktoken>=0.14.0
+langgraph>=1.2.12
+requests>=2.34.2
+typing_extensions>=4.16.0
+boto3>=1.43.103
 # Lambda runtime client for the agent image; Linux-only native build, so
 # skipped on Windows/macOS dev machines where it's never used.
-awslambdaric>=3.0.0; sys_platform == "linux"
+awslambdaric>=4.0.4; sys_platform == "linux"
 # MCP server (mcp_server.py). Capped below 3: 2.x renamed FastMCP to
 # MCPServer and moved transport options, so a major bump is a code change.
 mcp>=2.2,<3
 # ASGI -> Lambda adapter for the MCP server's Function URL entrypoint.
-mangum>=0.19
+mangum>=0.22.0
