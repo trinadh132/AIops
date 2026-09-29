@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from agentic import build_alert, build_graph, initial_state, VALID_FAILURE_TYPES
+from tools.logs import strip_excluded_events
 
 FAILURE_TYPE_TO_FILENAME = {ft: f"{ft.lower()}.log" for ft in VALID_FAILURE_TYPES}
 
@@ -30,7 +31,8 @@ def run_one(graph, failure_type: str, log_path: Path) -> dict:
     if not log_path.exists():
         return {"failure_type": failure_type, "status": "MISSING_FIXTURE", "detail": str(log_path)}
 
-    log_snippet = log_path.read_text(encoding="utf-8").strip()
+    # Drop failure_injection lines: they state the failure mode outright.
+    log_snippet = "\n".join(strip_excluded_events(log_path.read_text(encoding="utf-8").strip().splitlines()))
     alert = build_alert(failure_type, "orders-mock", log_snippet)
 
     try:

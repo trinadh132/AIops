@@ -166,7 +166,17 @@ class TestFetchAlarmLogs(unittest.TestCase):
         pattern = logs.build_filter_pattern("OOM_KILL")
         self.assertIn('$.failure_mode = "OOM_KILL"', pattern)
         self.assertIn('$.failure_mode = "MEMORY_LEAK"', pattern)
-        self.assertEqual(logs.build_filter_pattern("DISK_FULL"), '{ $.failure_mode = "DISK_FULL" }')
+        self.assertEqual(logs.build_filter_pattern("DISK_FULL"),
+                         '{ ($.failure_mode = "DISK_FULL") && $.event_type != "failure_injection" }')
+
+    def test_fixture_reader_drops_injection_events_that_name_the_answer(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "disk_full.log"), "w", encoding="utf-8") as f:
+                f.write('{"event_type":"failure_injection","failure_mode":"DISK_FULL"}\n'
+                        '{"event_type":"simulated_failure","failure_mode":"DISK_FULL"}\n')
+            lines = logs.read_fixture_logs(d, "DISK_FULL")
+        self.assertEqual(lines, ['{"event_type":"simulated_failure","failure_mode":"DISK_FULL"}'])
 
     def test_follows_pages_including_empty_ones_and_sorts(self):
         client = FakeLogsClient([

@@ -21,3 +21,12 @@ venv/
 logs/
 !captured-logs/
 !captured-logs/*.log
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+backend.hcl
+crash.log

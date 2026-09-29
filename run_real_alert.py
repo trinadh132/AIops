@@ -18,6 +18,7 @@ import json
 import sys
 
 from agentic import build_alert, build_graph, initial_state, VALID_FAILURE_TYPES
+from tools.logs import strip_excluded_events
 
 
 def main():
@@ -37,6 +38,9 @@ def main():
             log_snippet = f.read().strip()
     else:
         log_snippet = sys.stdin.read().strip()
+
+    # Drop failure_injection lines: they state the failure mode outright.
+    log_snippet = "\n".join(strip_excluded_events(log_snippet.splitlines()))
 
     if not log_snippet:
         print("No log snippet provided — pass --log-file or pipe content via stdin.", file=sys.stderr)

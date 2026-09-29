@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+image_tag    = "git-sha-of-the-images-you-pushed"
+alert_email  = "you@example.com"
+budget_email = "you@example.com"
+admin_cidr   = "203.0.113.10/32" # your public IP: curl -s https://checkip.amazonaws.com
+
+# Defaults, shown for reference:
+# region           = "us-east-1"
+# budget_limit_usd = 20
+# auto_remediate   = false  # shadow mode: every fix needs approval
+# enable_mcp       = true
+# mcp_write_tools  = false

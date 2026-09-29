@@ -50,9 +50,15 @@ called out so it can be defended (or revisited) in an interview.
 
 ### Alerting — CloudWatch log metric filters → alarms → SNS
 - The service already emits structured JSON with `failure_mode` and
-  `event_type`. One metric filter per failure mode, e.g.
-  `{ $.event_type = "simulated_failure" && $.failure_mode = "DISK_FULL" }`
-  (OOM uses `event_type = "process_killed"`).
+  `event_type`. One metric filter per failure mode, matching on **both**,
+  e.g. `{ $.event_type = "simulated_failure" && $.failure_mode = "DISK_FULL" }`.
+  Signal event types, read off `captured-logs/`: `high_latency` (slow
+  downstream), `memory_growth` (memory leak), `process_killed` (OOM),
+  `simulated_failure` (the other seven).
+- **Why both fields:** `failure_injection` (admin API) and
+  `remediation_applied` (executor) events also carry `failure_mode`. A
+  filter on `failure_mode` alone would raise an alarm when a failure is
+  injected and again when it's fixed.
 - One alarm per metric (threshold tuned per mode), all publishing to a
   single SNS topic via **both `alarm_actions` and `ok_actions`**. The OK
   transition is how recovery gets recorded; without `ok_actions` runs never
@@ -65,6 +71,11 @@ called out so it can be defended (or revisited) in an interview.
   `failure_type` from `Trigger.MetricName`, not by parsing alarm names.
 - **Gotcha:** the alarm payload carries no log lines. The agent must call
   `logs:FilterLogEvents` for the alarm window to build its `log_snippet`.
+- **Answer leakage:** that fetch excludes `failure_injection` events, which
+  literally say "failure mode X activated". Before this fix, the agent (and
+  the Phase 3 fixture runs) could read the label straight off its input, so
+  earlier diagnosis results are optimistic; re-run `run_all_failuers.py` for
+  honest numbers.
 
 ### Agent — Lambda, container image, outside a VPC
 - Container image (not a zip) because `langgraph` + `openai` + `psycopg2`
@@ -174,11 +185,56 @@ called out so it can be defended (or revisited) in an interview.
 - The Lambda reads them at cold start and caches them for the container's
   lifetime.
 
-### Infrastructure — Terraform
+### Infrastructure — Terraform (`infra/`)
 - Remote state in S3 with native lockfile locking (`use_lockfile = true`,
-  Terraform ≥ 1.10). No DynamoDB lock table needed.
-- Modules: `network` (VPC with public subnets only, no NAT), `ecr`, `ecs`,
-  `alerting`, `agent`, `approval`, `budget`.
+  Terraform ≥ 1.10). No DynamoDB lock table needed. `infra/bootstrap`
+  creates the versioned, encrypted, private state bucket once.
+- **Layout:** one root module with a file per concern (`network`, `ecr`,
+  `ecs`, `alerting`, `state` for SQS/DynamoDB/SSM, `lambdas`, `budget`),
+  plus one real module, `modules/container_lambda`, used three times
+  (agent, approval, MCP). A module per concern would mostly be variable
+  and output plumbing for a single environment; the Lambda module removes
+  genuine triplication (role, log group, image config, public URL).
+- **Secrets never enter state:** generated secrets (approval HMAC key, MCP
+  token) are ephemeral `random_password`s written through the write-only
+  `value_wo` attribute (Terraform ≥ 1.11); bump `secret_version` to
+  rotate. External secrets get a placeholder and are set with
+  `aws ssm put-parameter --overwrite`; `value_wo` is never read back, so
+  Terraform won't revert them.
+- **Public Function URLs** need two resource-policy statements:
+  `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` conditioned on
+  `invoked_via_function_url`. The first alone yields 403s under current
+  Lambda rules.
+- **Least-privilege notes:** each Lambda writes only to its own
+  pre-created log group (not `AWSLambdaBasicExecutionRole`); the ECS task
+  role can only receive/delete on the remediation queue; ECR lets only this
+  project's functions pull. Known gap: SSM authorizes
+  `GetParametersByPath` per path, so every function can read every secret
+  under `/ops-agent/`.
+- **Security scan (Trivy) exceptions**, each commented in place: alarms topic
+  unencrypted (CloudWatch can't publish to an `aws/sns`-encrypted topic);
+  AWS-managed rather than customer-managed keys for the approvals topic and
+  state bucket; egress `0.0.0.0/0` narrowed to TCP 443 (AWS endpoint IPs
+  aren't fixed without ~$7/month VPC endpoints). Skipped for cost: flow
+  logs, X-Ray, Container Insights, CMKs on logs/ECR/DynamoDB.
+- Verified with `terraform validate` (AWS provider 6.66, random 3.9) and a
+  Trivy config scan; not yet applied to a real account.
+
+### Deploying (first time)
+Container Lambdas can't be created until their image exists in ECR, so the
+first deploy is two applies around an image push:
+
+```bash
+cd infra/bootstrap && terraform init && terraform apply     # state bucket, once
+cd .. && cp backend.hcl.example backend.hcl                  # fill in bucket
+cp terraform.tfvars.example terraform.tfvars                 # fill in
+terraform init -backend-config=backend.hcl
+terraform apply -target=aws_ecr_repository.this              # repos only
+# build and push both images tagged with image_tag (step 7 automates this)
+terraform apply                                              # everything else
+# then: set the two external secrets (see `terraform output set_external_secrets`),
+# confirm the SNS subscription email, apply init.sql on Neon and index runbooks.
+```
 
 ### CI/CD — GitHub Actions with OIDC
 - An IAM role trusts GitHub's OIDC provider, scoped to this repository and
@@ -191,8 +247,8 @@ called out so it can be defended (or revisited) in an interview.
 - The capabilities (runbook search, diagnosis, run lookup, approvals, email,
   log fetch, failure injection) live in one plain Python `tools` package.
   The LangGraph nodes import it directly; an MCP server (`MCPServer`, SDK 2.x) is a thin
-  adapter that exposes the same functions to MCP clients such as Claude
-  Desktop and Claude Code.
+  adapter that exposes the same functions to MCP clients (desktop
+  assistants, IDE agents).
 - **Why not have `agentic.py` call its own tools over MCP:** every node would
   pay a protocol hop and gain a new failure mode (server down, transport
   errors) for no benefit — the graph already runs in the same process as the
@@ -235,9 +291,11 @@ called out so it can be defended (or revisited) in an interview.
     since by default it only admits localhost Host headers and would reject
     the Function URL's own hostname.
 - **Client setup:**
-  - Claude Code: `claude mcp add ops-agent -- python /abs/path/mcp_server.py`
-  - Claude Desktop (`claude_desktop_config.json`):
+  - Any stdio MCP client: register a server whose command is
+    `python /abs/path/mcp_server.py`. In the common JSON config format:
     `{"mcpServers": {"ops-agent": {"command": "python", "args": ["/abs/path/mcp_server.py"]}}}`
+  - HTTP clients: `http://localhost:8765/mcp` (compose) or the Function URL
+    + `/mcp`, with header `Authorization: Bearer <MCP_AUTH_TOKEN>`.
   - `.env` next to `mcp_server.py` supplies `OPENROUTER_API` / `DATABASE_URL`.
 
 ### Cost guardrail — AWS Budgets
@@ -277,7 +335,7 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
    action allowlist; HMAC-signed approval Function URL.
 5. **MCP server** *(done)* — `MCPServer` (SDK 2.x) adapter over `tools`; stdio locally, then a
    Function URL entrypoint in the agent image.
-6. **Terraform** — all infrastructure above, plus the budget.
+6. **Terraform** *(done: validated, not yet applied)* — all infrastructure above, plus the budget.
 7. **GitHub Actions** — CI on PRs, OIDC deploy on `main`.
 8. **Neon** — apply `init.sql`, index the runbooks.
 9. **Game day** — inject each failure mode in AWS and record alarm → diagnosis
