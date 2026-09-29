@@ -58,6 +58,9 @@ called out so it can be defended (or revisited) in an interview.
 - **Why not Prometheus/Grafana:** a self-hosted metrics stack needs another
   always-on task. CloudWatch's free tier covers 10 custom metrics and 10
   alarms — exactly one per failure mode.
+- **Naming contract:** each alarm's metric name is the `FailureMode` enum
+  name (e.g. `DISK_FULL`). The handler maps an alarm back to a
+  `failure_type` from `Trigger.MetricName`, not by parsing alarm names.
 - **Gotcha:** the alarm payload carries no log lines. The agent must call
   `logs:FilterLogEvents` for the alarm window to build its `log_snippet`.
 
@@ -70,10 +73,23 @@ called out so it can be defended (or revisited) in an interview.
   reach them.
 - Timeout ~5 min: diagnosis can involve a summarize-and-retry loop plus
   model fallbacks.
-- **Idempotency:** SNS retries async Lambda invocations on failure, so the
-  first step is a conditional `PutItem` into `agent_runs` keyed on the alarm's
-  state-change ID. A duplicate delivery becomes a no-op instead of a second
-  diagnosis.
+- **Idempotency:** SNS delivers at-least-once and Lambda retries failed async
+  invocations, so each run first *claims* `run-<sha256(alarm ARN | state
+  change time)>` with a conditional write. A duplicate delivery is a no-op; a
+  clean failure (`error`) can be retried; a run stuck in `running` past a
+  900s lease (the attempt died from a timeout or running out of memory) can be taken over. Each claim writes a
+  fresh `claim_id`, and results are only recorded while it still matches, so
+  an overrunning attempt can't overwrite its replacement.
+- **Runtime contract** (implemented in `lambda_handler.py`):
+
+  | Setting | Value |
+  |---|---|
+  | Image entry point / command | `python -m awslambdaric` / `lambda_handler.handler` |
+  | `SSM_PARAMETER_PREFIX` | e.g. `/ops-agent` (holds `OPENROUTER_API`, `DATABASE_URL`) |
+  | `RUNS_TABLE_NAME` | DynamoDB table, partition key `run_id` (S), TTL on `expires_at` |
+  | `LOG_GROUP_NAME` | the mock service's log group |
+  | `LOG_WINDOW_MINUTES` | log look-back before the alarm (default 5) |
+  | IAM | `ssm:GetParametersByPath` + `kms:Decrypt`, `dynamodb:UpdateItem`/`GetItem`, `logs:FilterLogEvents` |
 
 ### Remediation path — SQS, pulled by the mock service *(open decision)*
 - The agent never calls the mock service directly. Approved or auto-approved
@@ -196,9 +212,9 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
 ## Build order
 
 1. **Repo fixes** — schema, dependencies, paths, fixtures. *(done)*
-2. **Containerize** — Dockerfiles for the mock service and the agent, plus a
+2. **Containerize** *(done)* — Dockerfiles for the mock service and the agent, plus a
    local `docker compose` that runs the service, pgvector, and the agent.
-3. **Tools module + agent Lambda handler** — extract the shared `tools`
+3. **Tools module + agent Lambda handler** *(done)* — extract the shared `tools`
    package; SNS event → alert (via `FilterLogEvents`), `agent_runs` writes
    with idempotency, SSM config loading.
 4. **Remediation + approval** — SQS executor in the mock service with an

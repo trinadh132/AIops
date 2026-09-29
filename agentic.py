@@ -7,6 +7,8 @@ from __future__ import annotations  # must be the first statement in the file
 import logging
 import operator
 import os
+import uuid
+from datetime import datetime, timezone
 from typing import Literal, Optional, get_args
 
 from typing_extensions import Annotated, TypedDict
@@ -163,11 +165,13 @@ def _retrieval_deps():
 
 
 def _reset_retrieval_deps_cache():
-    """Test-only hook. _retrieval_deps() caches at module level so production
-    doesn't reopen a DB connection per alert — but that same caching means a
-    test that stubs query_retrieval AFTER the cache is already populated would
-    silently get the stale cached values instead of its own stub. Call this
-    before any test that patches sys.modules['query_retrieval']."""
+    """Drop the cached DB cursor + client so the next alert builds fresh ones.
+
+    Tests call this before patching sys.modules['query_retrieval'], or they'd
+    get the stale cached values instead of their stub. The Lambda handler
+    calls it once per alert: a warm container can sit idle long enough for
+    the server (Neon scales to zero) to drop the cached connection, and alerts
+    are rare enough that reconnecting each time costs nothing noticeable."""
     if hasattr(_retrieval_deps, "_cache"):
         del _retrieval_deps._cache
 
@@ -359,6 +363,43 @@ def respond(state: AgentState) -> dict:
 
 
 # ---- Helpers -------------------------------------------------------------
+
+def build_alert(
+    failure_type: str,
+    service: str,
+    log_snippet: str,
+    alert_id: Optional[str] = None,
+    timestamp: Optional[str] = None,
+    raw_payload: Optional[dict] = None,
+) -> Alert:
+    """Single place alerts are built, so the CLI scripts and the Lambda
+    handler can't drift apart on shape."""
+    return {
+        "alert_id": alert_id or f"alert-{uuid.uuid4().hex[:8]}",
+        "failure_type": failure_type,
+        "service": service,
+        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "log_snippet": log_snippet,
+        "raw_payload": raw_payload if raw_payload is not None else {"log_snippet": log_snippet},
+    }
+
+
+def initial_state(alert: Alert) -> AgentState:
+    return {
+        "alert": alert,
+        "retrieved_chunks": [],
+        "retrieval_confidence": 0.0,
+        "used_fallback": False,
+        "needs_web_search": False,
+        "web_search_results": [],
+        "diagnosis": None,
+        "remediation_plan": None,
+        "risk_decision": None,
+        "final_output": None,
+        "node_errors": [],
+        "diagnose_error": None,
+        "diagnose_retry_count": 0,
+    }
 
 def _condense_log_snippet(log_snippet: str, max_chars: int = 4000) -> str:
     """Captured logs are often dozens of near-identical repeated lines during

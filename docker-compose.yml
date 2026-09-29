@@ -7,6 +7,10 @@
 #   docker compose run --rm agent python run_all_failuers.py
 #   docker compose run --rm agent python -m unittest unittes
 #
+# Lambda handler tests need moto (requirements-dev.txt), run on the host:
+#   pip install -r requirements-dev.txt
+#   python -m unittest test_lambda_handler unittes
+#
 # The agent needs OPENROUTER_API in .env (copy .env.example) for anything
 # that embeds or calls an LLM; the unit tests don't.
 

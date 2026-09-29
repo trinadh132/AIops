@@ -21,7 +21,10 @@ RUN pip install -r requirements.txt
 
 COPY *.py init.sql eval_cases.json chunks.json ./
 COPY RAGcourps ./RAGcourps
+COPY tools ./tools
 
 USER app
-# No long-running process yet; run a specific script via `docker compose run`.
+# No ENTRYPOINT on purpose: locally, `docker compose run agent python ...`
+# picks the script. Lambda overrides it via image config (see
+# lambda_handler.py): python -m awslambdaric lambda_handler.handler
 CMD ["python", "run_real_alert.py", "--help"]

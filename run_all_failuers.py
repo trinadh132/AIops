@@ -21,8 +21,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from agentic import build_graph, VALID_FAILURE_TYPES
-from run_real_alert import build_alert, initial_state
+from agentic import build_alert, build_graph, initial_state, VALID_FAILURE_TYPES
 
 FAILURE_TYPE_TO_FILENAME = {ft: f"{ft.lower()}.log" for ft in VALID_FAILURE_TYPES}
 

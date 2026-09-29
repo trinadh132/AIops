@@ -16,39 +16,8 @@ Or pipe a log snippet directly instead of --log-file:
 import argparse
 import json
 import sys
-import uuid
-from datetime import datetime, timezone
 
-from agentic import build_graph, VALID_FAILURE_TYPES
-
-
-def build_alert(failure_type: str, service: str, log_snippet: str) -> dict:
-    return {
-        "alert_id": f"alert-{uuid.uuid4().hex[:8]}",
-        "failure_type": failure_type,
-        "service": service,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "log_snippet": log_snippet,
-        "raw_payload": {"log_snippet": log_snippet},
-    }
-
-
-def initial_state(alert: dict) -> dict:
-    return {
-        "alert": alert,
-        "retrieved_chunks": [],
-        "retrieval_confidence": 0.0,
-        "used_fallback": False,
-        "needs_web_search": False,
-        "web_search_results": [],
-        "diagnosis": None,
-        "remediation_plan": None,
-        "risk_decision": None,
-        "final_output": None,
-        "node_errors": [],
-        "diagnose_error": None,
-        "diagnose_retry_count": 0,
-    }
+from agentic import build_alert, build_graph, initial_state, VALID_FAILURE_TYPES
 
 
 def main():

@@ -1,0 +1,3 @@
+-r requirements.txt
+# In-memory AWS (DynamoDB, SSM) for handler tests: no account, no network.
+moto[dynamodb,ssm]>=5.0.0
