@@ -2,7 +2,7 @@
 # Build from the repo root:  docker build -f docker/mock-service.Dockerfile .
 
 # ---- build: full JDK + Maven, discarded after packaging -------------------
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3-eclipse-temurin-26 AS build
 WORKDIR /build
 
 # Dependencies first, sources second: editing Java code doesn't invalidate
