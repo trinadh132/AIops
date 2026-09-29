@@ -15,7 +15,7 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 
 # ---- runtime: JRE only ----------------------------------------------------
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:25-jre
 
 RUN useradd --system --uid 10001 --no-create-home app
 WORKDIR /app
