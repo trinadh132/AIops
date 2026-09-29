@@ -86,6 +86,8 @@ class AgentState(TypedDict):
     # populated by diagnose_and_plan on failure; drives the summarize/retry loop
     diagnose_error: Optional[str]
     diagnose_retry_count: int
+    # set when summarize_log's own LLM call fails; ends the run in diagnosis_failed
+    summarize_failed: bool
 
 
 logger = logging.getLogger("self_healing_ops.agent")
@@ -306,7 +308,18 @@ and any distinct message patterns. Be terse — plain text, not JSON, under
 Log:
 {alert['log_snippet'][:8000]}"""
 
-    response = call_llm(summary_prompt, response_format="text")
+    try:
+        response = call_llm(summary_prompt, response_format="text")
+    except Exception as e:
+        # Same contract as diagnose_and_plan: record, don't raise. This call
+        # usually runs right after a diagnose failure, often for the same
+        # reason (rate limit, provider outage), and a raise here would crash
+        # the graph instead of ending in diagnosis_failed.
+        logger.warning("summarize_log failed: %s", e)
+        return {
+            "diagnose_error": f"{state.get('diagnose_error')}; then summarize_log failed: {type(e).__name__}: {e}",
+            "summarize_failed": True,
+        }
     summarized_alert = {**alert, "log_snippet": response["content"]}
 
     logger.info(
@@ -318,6 +331,11 @@ Log:
         "alert": summarized_alert,
         "diagnose_retry_count": state["diagnose_retry_count"] + 1,
     }
+
+
+def route_after_summarize(state: AgentState) -> Literal["diagnose_and_plan", "diagnosis_failed"]:
+    """No point retrying the diagnosis with a log we failed to shrink."""
+    return "diagnosis_failed" if state.get("summarize_failed") else "diagnose_and_plan"
 
 
 def diagnosis_failed(state: AgentState) -> dict:
@@ -403,6 +421,7 @@ def initial_state(alert: Alert) -> AgentState:
         "node_errors": [],
         "diagnose_error": None,
         "diagnose_retry_count": 0,
+        "summarize_failed": False,
     }
 
 def _condense_log_snippet(log_snippet: str, max_chars: int = 4000) -> str:
@@ -559,7 +578,11 @@ def build_graph():
         route_after_diagnose,
         {"risk_gate": "risk_gate", "summarize_log": "summarize_log", "diagnosis_failed": "diagnosis_failed"},
     )
-    graph.add_edge("summarize_log", "diagnose_and_plan")
+    graph.add_conditional_edges(
+        "summarize_log",
+        route_after_summarize,
+        {"diagnose_and_plan": "diagnose_and_plan", "diagnosis_failed": "diagnosis_failed"},
+    )
     graph.add_edge("diagnosis_failed", "respond")
 
     graph.add_conditional_edges(

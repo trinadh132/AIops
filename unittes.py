@@ -80,6 +80,7 @@ def _base_state(**overrides) -> dict:
         "node_errors": [],
         "diagnose_error": None,
         "diagnose_retry_count": 0,
+        "summarize_failed": False,
     }
     state.update(overrides)
     return state
@@ -390,6 +391,29 @@ class TestFullGraphRetryLoop(unittest.TestCase):
 
         self.assertEqual(final["final_output"]["status"], "diagnosis_failed")
         self.assertIn("still too big", final["final_output"]["errors"][0])
+
+    def test_summarize_failure_ends_in_diagnosis_failed_instead_of_crashing(self):
+        """Regression: a rate limit hit diagnose, then the summarize retry
+        hit it too and raised out of the graph. Found by eval_agent.py."""
+        calls = {"json": 0}
+
+        def rate_limited(prompt, response_format="json"):
+            if response_format == "json":
+                calls["json"] += 1
+            raise RuntimeError("Error code: 429 - Rate limit exceeded")
+
+        fake_rows = [("r", "s", "source.md", "c", "symptoms", 0.05)]
+        ag._reset_retrieval_deps_cache()
+        stubs = {
+            "query_retrieval": _stub_query_retrieval(lambda cur, embedding, failure_type, k: (fake_rows, False)),
+            "llm": _stub_module("llm", call_llm=rate_limited),
+        }
+        with patch.dict(sys.modules, stubs):
+            final = ag.build_graph().invoke(_base_state())  # must not raise
+
+        self.assertEqual(final["final_output"]["status"], "diagnosis_failed")
+        self.assertIn("summarize_log failed", final["final_output"]["errors"][0])
+        self.assertEqual(calls["json"], 1)  # no second diagnose with an unshrunk log
 
 
 class TestFullGraphAllBranches(unittest.TestCase):

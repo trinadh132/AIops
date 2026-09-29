@@ -72,10 +72,11 @@ called out so it can be defended (or revisited) in an interview.
 - **Gotcha:** the alarm payload carries no log lines. The agent must call
   `logs:FilterLogEvents` for the alarm window to build its `log_snippet`.
 - **Answer leakage:** that fetch excludes `failure_injection` events, which
-  literally say "failure mode X activated". Before this fix, the agent (and
-  the Phase 3 fixture runs) could read the label straight off its input, so
-  earlier diagnosis results are optimistic; re-run `run_all_failuers.py` for
-  honest numbers.
+  literally say "failure mode X activated", so the LLM can't read the label
+  off its input. Measured afterwards with `eval_agent.py blind`: for
+  retrieval the leak was harmless (one line among ~30 barely moves an
+  embedding; recall@1 was 70% with it, 80% without). See the README's
+  Evaluation section.
 
 ### Agent — Lambda, container image, outside a VPC
 - Container image (not a zip) because `langgraph` + `openai` + `psycopg2`

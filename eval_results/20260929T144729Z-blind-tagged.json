@@ -1,0 +1,113 @@
+{
+  "part": "blind",
+  "variant": "tagged",
+  "k": 3,
+  "metrics": {
+    "recall@1": 0.8,
+    "recall@3": 1.0,
+    "mrr": 0.9
+  },
+  "rows": [
+    {
+      "failure_type": "BAD_DEPLOY_ERROR_SPIKE",
+      "rank": 1,
+      "top": [
+        "BAD_DEPLOY_ERROR_SPIKE",
+        "CONNECTION_POOL_EXHAUSTION",
+        "CONFIG_DRIFT"
+      ],
+      "top_similarity": 0.7833
+    },
+    {
+      "failure_type": "CONFIG_DRIFT",
+      "rank": 1,
+      "top": [
+        "CONFIG_DRIFT",
+        "CONNECTION_POOL_EXHAUSTION",
+        "DB_DEADLOCK"
+      ],
+      "top_similarity": 0.762
+    },
+    {
+      "failure_type": "CONNECTION_POOL_EXHAUSTION",
+      "rank": 1,
+      "top": [
+        "CONNECTION_POOL_EXHAUSTION",
+        "DB_DEADLOCK",
+        "THREAD_POOL_EXHAUSTION"
+      ],
+      "top_similarity": 0.8035
+    },
+    {
+      "failure_type": "DB_DEADLOCK",
+      "rank": 1,
+      "top": [
+        "DB_DEADLOCK",
+        "CONNECTION_POOL_EXHAUSTION",
+        "SLOW_DOWNSTREAM_DEPENDENCY"
+      ],
+      "top_similarity": 0.7763
+    },
+    {
+      "failure_type": "DISK_FULL",
+      "rank": 1,
+      "top": [
+        "DISK_FULL",
+        "CONNECTION_POOL_EXHAUSTION",
+        "DB_DEADLOCK"
+      ],
+      "top_similarity": 0.7794
+    },
+    {
+      "failure_type": "MEMORY_LEAK",
+      "rank": 1,
+      "top": [
+        "MEMORY_LEAK",
+        "OOM_KILL",
+        "DISK_FULL"
+      ],
+      "top_similarity": 0.8101
+    },
+    {
+      "failure_type": "OOM_KILL",
+      "rank": 2,
+      "top": [
+        "MEMORY_LEAK",
+        "OOM_KILL",
+        "DISK_FULL"
+      ],
+      "top_similarity": 0.8125
+    },
+    {
+      "failure_type": "RETRY_STORM",
+      "rank": 1,
+      "top": [
+        "RETRY_STORM",
+        "CONNECTION_POOL_EXHAUSTION",
+        "DB_DEADLOCK"
+      ],
+      "top_similarity": 0.7431
+    },
+    {
+      "failure_type": "SLOW_DOWNSTREAM_DEPENDENCY",
+      "rank": 1,
+      "top": [
+        "SLOW_DOWNSTREAM_DEPENDENCY",
+        "CONNECTION_POOL_EXHAUSTION",
+        "DB_DEADLOCK"
+      ],
+      "top_similarity": 0.7889
+    },
+    {
+      "failure_type": "THREAD_POOL_EXHAUSTION",
+      "rank": 2,
+      "top": [
+        "CONNECTION_POOL_EXHAUSTION",
+        "THREAD_POOL_EXHAUSTION",
+        "DB_DEADLOCK"
+      ],
+      "top_similarity": 0.7776
+    }
+  ],
+  "run_at": "2026-09-29T14:47:29.522631+00:00"
+}
