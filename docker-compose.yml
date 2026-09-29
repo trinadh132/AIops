@@ -72,5 +72,28 @@ services:
       pgvector:
         condition: service_healthy
 
+  mcp:
+    image: ops-agent/agent:local
+    # Streamable HTTP MCP server for clients that can't launch a local
+    # process. `docker compose --profile mcp up -d mcp`, then point the
+    # client at http://localhost:8765/mcp with header
+    # `Authorization: Bearer $MCP_AUTH_TOKEN`.
+    profiles: ["mcp"]
+    command: ["python", "mcp_server.py", "--http", "--host", "0.0.0.0", "--port", "8765"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://ops_agent:ops_agent_dev@pgvector:5432/ops_agent_rag
+      MOCK_SERVICE_URL: http://mock-service:8080
+    ports:
+      # Loopback only: reachable from this machine, not the LAN.
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ./captured-logs:/app/captured-logs:ro
+    depends_on:
+      pgvector:
+        condition: service_healthy
+
 volumes:
   pgvector_data:

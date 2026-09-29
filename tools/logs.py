@@ -7,6 +7,7 @@ failure_mode over a window ending at the alarm's state change.
 """
 
 from datetime import datetime
+from pathlib import Path
 
 # Per RAGcourps/oom_kill.md: the growth ticks leading up to an OOM kill are
 # tagged MEMORY_LEAK and only the final process_killed line is OOM_KILL, so
@@ -55,3 +56,13 @@ def fetch_alarm_logs(
 
     events.sort(key=lambda e: e["timestamp"])
     return [e["message"].rstrip("\n") for e in events[-max_events:]]
+
+
+def read_fixture_logs(fixtures_dir, failure_type: str, max_events: int = DEFAULT_MAX_EVENTS) -> list[str]:
+    """Local stand-in for fetch_alarm_logs: the captured-logs/ fixture for a
+    failure mode. Used when no CloudWatch log group is configured."""
+    path = Path(fixtures_dir) / f"{failure_type.lower()}.log"
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return lines[-max_events:]

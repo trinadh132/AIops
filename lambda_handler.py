@@ -118,7 +118,7 @@ def handle_alarm(message: dict, *, store, logs_client, graph, remediator,
 
         ag._reset_retrieval_deps_cache()
         final = graph.invoke(ag.initial_state(alert))
-        result = summarize_run(final, log_line_count=len(lines))
+        result = ag.summarize_run(final, log_line_count=len(lines))
         result.update(remediator.route(run_id, failure_type, final.get("final_output") or {}))
     except Exception as e:
         store.fail(run_id, claim_id, f"{type(e).__name__}: {e}")
@@ -129,27 +129,6 @@ def handle_alarm(message: dict, *, store, logs_client, graph, remediator,
     logger.info("Run %s finished: outcome=%s remediation=%s",
                 run_id, result["outcome"], result["remediation_status"])
     return {"run_id": run_id, "outcome": result["outcome"], "remediation_status": result["remediation_status"]}
-
-
-def summarize_run(final: dict, log_line_count: int) -> dict:
-    """What goes into agent_runs. Keeps a condensed log excerpt rather than
-    the raw log: DynamoDB items cap at 400 KB, and the audit trail needs what
-    the agent saw, not every repeated line."""
-    final_output = final.get("final_output") or {}
-    return {
-        "outcome": final_output.get("status", "unknown"),
-        "final_output": final_output,
-        "retrieval_confidence": final.get("retrieval_confidence", 0.0),
-        "used_fallback": final.get("used_fallback", False),
-        "retrieved": [
-            {"runbook_id": c["runbook_id"], "section": c["section"], "similarity_score": c["similarity_score"]}
-            for c in final.get("retrieved_chunks", [])
-        ],
-        "web_sources": [r["url"] for r in final.get("web_search_results", [])],
-        "node_errors": final.get("node_errors", []),
-        "log_line_count": log_line_count,
-        "log_excerpt": ag._condense_log_snippet(final["alert"]["log_snippet"]),
-    }
 
 
 def _parse_record(record: dict) -> dict | None:

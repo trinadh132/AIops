@@ -190,7 +190,7 @@ called out so it can be defended (or revisited) in an interview.
 ### MCP layer — one tools module, two front doors
 - The capabilities (runbook search, diagnosis, run lookup, approvals, email,
   log fetch, failure injection) live in one plain Python `tools` package.
-  The LangGraph nodes import it directly; an MCP server (`FastMCP`) is a thin
+  The LangGraph nodes import it directly; an MCP server (`MCPServer`, SDK 2.x) is a thin
   adapter that exposes the same functions to MCP clients such as Claude
   Desktop and Claude Code.
 - **Why not have `agentic.py` call its own tools over MCP:** every node would
@@ -198,26 +198,47 @@ called out so it can be defended (or revisited) in an interview.
   errors) for no benefit — the graph already runs in the same process as the
   code. MCP is the interface for *external* clients; the shared module keeps
   both paths calling identical code, so there's no drift between them.
-- Planned tools:
+- Tools (`mcp_server.py`, MCP Python SDK 2.x `MCPServer`):
 
-  | Tool | Kind | Notes |
+  | Tool | Kind | Backed by |
   |---|---|---|
-  | `search_runbooks(query, failure_type?, k)` | read | wraps `query_retrieval.retrieve` |
-  | `get_runbook(failure_type)` | read | full runbook markdown |
-  | `get_recent_logs(failure_type, minutes)` | read | CloudWatch `FilterLogEvents` (local: captured-logs) |
-  | `diagnose_alert(failure_type, log_snippet)` | read* | runs the graph; *costs LLM calls |
-  | `get_run(run_id)` / `list_runs(status?)` | read | `agent_runs` table |
-  | `send_notification(run_id)` | write | SNS email for a run |
-  | `list_failures` / `inject_failure(mode)` | write | mock service admin; dev/demo only |
-  | `request_approval(run_id)` | write | sends the signed link, never approves |
+  | `search_runbooks(query, failure_type?, k)` | read, calls embeddings | `agentic.retrieve_chunks` (same code as the graph's retrieve node) |
+  | `get_runbook(failure_type)` | read | `RAGcourps/<mode>.md` |
+  | `get_recent_logs(failure_type, minutes, max_lines)` | read | CloudWatch if `LOG_GROUP_NAME` set, else `captured-logs/` |
+  | `diagnose_alert(failure_type, log_snippet)` | read, calls LLM | the full graph; advisory, records nothing |
+  | `get_run(run_id)` / `list_runs(limit, approval_status?)` | read | `agent_runs` (`RUNS_TABLE_NAME`) |
+  | `list_failures()` | read | mock service admin API (`MOCK_SERVICE_URL`) |
+  | `inject_failure(failure_type)` | write, opt-in | mock service admin API; demo only, no matching "clear" |
+  | `request_approval(run_id)` | write, opt-in | re-sends the signed-link email for a *pending* run |
 
-- **Guardrail:** no MCP tool can approve a remediation. Approval stays with
-  the human clicking the HMAC-signed link; otherwise any MCP client (or a
-  prompt-injected log line reaching one) could bypass the human-in-the-loop.
-  Write tools are opt-in via a server flag and off by default.
-- **Hosting:** stdio transport locally (zero infrastructure). In AWS, a
-  stateless streamable-HTTP server on a second Lambda Function URL, behind a
-  bearer token from SSM. Same image as the agent, different entrypoint.
+- **Guardrails:**
+  - No tool can approve or execute a remediation. Approval stays with the
+    human clicking the HMAC-signed link; otherwise any MCP client (or a
+    prompt-injected log line steering one) could bypass the human-in-the-loop.
+  - Write tools exist only when `MCP_ENABLE_WRITE_TOOLS=true`.
+  - Every `failure_type` is validated against the enum before use, so it can
+    never become a path (`get_runbook` reads a file named after it).
+  - Tool annotations mark read/write and open-world (LLM-calling) tools, so
+    clients can prompt before the expensive or mutating ones.
+- **Transports:**
+  - **stdio** locally: the client launches `python mcp_server.py`. Nothing on
+    the process's stdout except protocol: `query_retrieval.retrieve` logs its
+    fallback warning instead of printing it for this reason.
+  - **Streamable HTTP**, stateless with JSON responses:
+    `python mcp_server.py --http` or `docker compose --profile mcp up -d mcp`
+    (loopback port 8765). Bearer token (`MCP_AUTH_TOKEN`) required.
+  - **Lambda Function URL** (AWS): same image, command `mcp_server.handler`
+    (Mangum adapter), auth type NONE + bearer token from SSM
+    (`/ops-agent/MCP_AUTH_TOKEN`). Two SDK behaviors handled there: the ASGI
+    app is rebuilt per invocation because the SDK's session manager can only
+    start once per instance; and the SDK's DNS-rebinding guard is disabled,
+    since by default it only admits localhost Host headers and would reject
+    the Function URL's own hostname.
+- **Client setup:**
+  - Claude Code: `claude mcp add ops-agent -- python /abs/path/mcp_server.py`
+  - Claude Desktop (`claude_desktop_config.json`):
+    `{"mcpServers": {"ops-agent": {"command": "python", "args": ["/abs/path/mcp_server.py"]}}}`
+  - `.env` next to `mcp_server.py` supplies `OPENROUTER_API` / `DATABASE_URL`.
 
 ### Cost guardrail — AWS Budgets
 - Monthly cost budget at $20 with email alerts at 80% actual and 100%
@@ -254,7 +275,7 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
    with idempotency, SSM config loading.
 4. **Remediation + approval** *(done)* — SQS executor in the mock service with an
    action allowlist; HMAC-signed approval Function URL.
-5. **MCP server** — FastMCP adapter over `tools`; stdio locally, then a
+5. **MCP server** *(done)* — `MCPServer` (SDK 2.x) adapter over `tools`; stdio locally, then a
    Function URL entrypoint in the agent image.
 6. **Terraform** — all infrastructure above, plus the budget.
 7. **GitHub Actions** — CI on PRs, OIDC deploy on `main`.

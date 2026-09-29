@@ -181,12 +181,7 @@ def retrieve_runbook_context(state: AgentState) -> dict:
     is (cursor, precomputed embedding, lowercase failure_type, k) -> (rows,
     used_fallback), where rows are raw tuples ordered by cosine DISTANCE
     (lower = more similar) — not the object-shaped API originally assumed here."""
-    cur, client, embed_query, retrieve = _retrieval_deps()
-
     alert = state["alert"]
-    # runbook_chunks.failure_type is stored lowercase (Phase 1 schema
-    # convention); Alert.failure_type is the uppercase enum name.
-    failure_type_lower = alert["failure_type"].lower()
 
     # Same reasoning as _build_diagnosis_prompt: raw captured logs can exceed
     # the EMBEDDING model's own context limit too. This is a separate model
@@ -194,9 +189,25 @@ def retrieve_runbook_context(state: AgentState) -> dict:
     # THREAD_POOL_EXHAUSTION's raw log was large enough to break this call
     # before diagnosis ever got a turn.
     condensed_log = _condense_log_snippet(alert["log_snippet"])
-    embedding = embed_query(client, condensed_log)
-    rows, used_fallback = retrieve(cur, embedding, failure_type_lower, k=3)
+    chunks, used_fallback = retrieve_chunks(condensed_log, alert["failure_type"], k=3)
 
+    top_score = chunks[0]["similarity_score"] if chunks else 0.0
+
+    return {
+        "retrieved_chunks": chunks,
+        "retrieval_confidence": top_score,
+        "used_fallback": used_fallback,
+    }
+
+
+def retrieve_chunks(text: str, failure_type: Optional[str], k: int = 3) -> tuple[list[RetrievedChunk], bool]:
+    """Embed text and fetch the k closest runbook chunks, pre-filtered to
+    failure_type when given. Shared by the retrieve node and the MCP
+    search_runbooks tool, so both paths rank identically."""
+    cur, client, embed_query, retrieve = _retrieval_deps()
+    # runbook_chunks.failure_type is stored lowercase (Phase 1 schema
+    # convention); Alert.failure_type is the uppercase enum name.
+    rows, used_fallback = retrieve(cur, embed_query(client, text), failure_type.lower() if failure_type else None, k=k)
     chunks = [
         {
             "runbook_id": source_file,
@@ -208,14 +219,7 @@ def retrieve_runbook_context(state: AgentState) -> dict:
         }
         for (ftype, section, source_file, content, symptoms_summary, distance) in rows
     ]
-
-    top_score = chunks[0]["similarity_score"] if chunks else 0.0
-
-    return {
-        "retrieved_chunks": chunks,
-        "retrieval_confidence": top_score,
-        "used_fallback": used_fallback,
-    }
+    return chunks, used_fallback
 
 
 def confidence_gate(state: AgentState) -> dict:
@@ -481,6 +485,29 @@ types, not synonyms or alternative shapes:
     "overall_risk_level": "low" or "medium" or "high"
   }}
 }}"""
+
+
+def summarize_run(final: dict, log_line_count: Optional[int] = None) -> dict:
+    """Compact, JSON-safe view of a finished graph run: what goes into
+    agent_runs and what the MCP diagnose tool returns. Keeps a condensed log
+    excerpt rather than the raw log: DynamoDB items cap at 400 KB, and the
+    audit trail needs what the agent saw, not every repeated line."""
+    final_output = final.get("final_output") or {}
+    return {
+        "outcome": final_output.get("status", "unknown"),
+        "final_output": final_output,
+        "retrieval_confidence": final.get("retrieval_confidence", 0.0),
+        "used_fallback": final.get("used_fallback", False),
+        "retrieved": [
+            {"runbook_id": c["runbook_id"], "section": c["section"], "similarity_score": c["similarity_score"]}
+            for c in final.get("retrieved_chunks", [])
+        ],
+        "web_sources": [r["url"] for r in final.get("web_search_results", [])],
+        "node_errors": final.get("node_errors", []),
+        "log_line_count": log_line_count if log_line_count is not None
+                          else len(final["alert"]["log_snippet"].splitlines()),
+        "log_excerpt": _condense_log_snippet(final["alert"]["log_snippet"]),
+    }
 
 
 def _format_output(state: AgentState, status: str) -> dict:

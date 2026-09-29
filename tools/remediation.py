@@ -86,11 +86,28 @@ class RemediationRouter:
                     "approval_status": "not_required"}
 
         expires_at = int(now + self._link_ttl)
-        self._send_approval_request(run_id, failure_type, final_output, expires_at)
+        self.send_approval_request(run_id, failure_type, final_output, expires_at)
         return {"remediation_action": action, "remediation_status": "awaiting_approval",
                 "approval_status": "pending", "approval_expires_at": expires_at}
 
-    def _send_approval_request(self, run_id, failure_type, final_output, expires_at):
+    def resend_approval(self, store, run_id: str, now: float | None = None) -> dict:
+        """Fresh links for a run that's still pending (lost or expired email).
+        Old links stay valid until their own expiry; single use still holds
+        because every link funnels through the same conditional decide()."""
+        from tools.runs import from_dynamo
+
+        run = store.get(run_id)
+        if not run:
+            raise LookupError(f"No run {run_id!r}")
+        if run.get("approval_status") != "pending":
+            raise ValueError(f"Run {run_id} is {run.get('approval_status')!r}, not pending approval")
+        now = time.time() if now is None else now
+        expires_at = int(now + self._link_ttl)
+        self.send_approval_request(run_id, run["failure_type"], from_dynamo(run.get("final_output") or {}), expires_at)
+        store.set_fields(run_id, {"approval_expires_at": expires_at})
+        return {"run_id": run_id, "approval_expires_at": expires_at}
+
+    def send_approval_request(self, run_id, failure_type, final_output, expires_at):
         links = {d: approval.build_link(self._approval_base_url, self._hmac_key, run_id, d, expires_at)
                  for d in approval.DECISIONS}
         diagnosis = final_output.get("diagnosis") or {}

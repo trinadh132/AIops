@@ -11,3 +11,8 @@ boto3>=1.34.0
 # Lambda runtime client for the agent image; Linux-only native build, so
 # skipped on Windows/macOS dev machines where it's never used.
 awslambdaric>=3.0.0; sys_platform == "linux"
+# MCP server (mcp_server.py). Capped below 3: 2.x renamed FastMCP to
+# MCPServer and moved transport options, so a major bump is a code change.
+mcp>=2.2,<3
+# ASGI -> Lambda adapter for the MCP server's Function URL entrypoint.
+mangum>=0.19

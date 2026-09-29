@@ -35,6 +35,22 @@ def to_dynamo(value):
     return json.loads(json.dumps(value, default=str), parse_float=Decimal)
 
 
+def from_dynamo(value):
+    """Inverse of to_dynamo for callers that need plain JSON (MCP tools):
+    Decimals become ints when integral, floats otherwise."""
+    def convert(obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj == obj.to_integral_value() else float(obj)
+        raise TypeError(f"Unserializable: {type(obj).__name__}")
+    return json.loads(json.dumps(value, default=convert))
+
+
+RUN_SUMMARY_FIELDS = (
+    "run_id", "status", "outcome", "failure_type", "alarm_name", "approval_status",
+    "remediation_status", "created_at", "seconds_to_recover",
+)
+
+
 def _is_conditional_failure(err: ClientError) -> bool:
     return err.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException"
 
@@ -99,6 +115,29 @@ class RunStore:
 
     def get(self, run_id: str) -> dict | None:
         return self._table.get_item(Key={"run_id": run_id}).get("Item")
+
+    def list_runs(self, limit: int = 20, approval_status: str | None = None, max_pages: int = 10) -> list[dict]:
+        """Newest-first run summaries. A Scan is fine at this volume (a demo
+        sees a handful of runs a day); a GSI on (status, created_at) is the
+        upgrade once it isn't."""
+        names = {"#rid": "run_id"}
+        values = {":pointer": "alarm#"}
+        condition = "NOT begins_with(#rid, :pointer)"
+        if approval_status:
+            names["#approval"] = "approval_status"
+            values[":approval"] = approval_status
+            condition += " AND #approval = :approval"
+        kwargs = {"FilterExpression": condition, "ExpressionAttributeNames": names,
+                  "ExpressionAttributeValues": values}
+        items = []
+        for _ in range(max_pages):
+            page = self._table.scan(**kwargs)
+            items.extend(page.get("Items", []))
+            if "LastEvaluatedKey" not in page:
+                break
+            kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+        items.sort(key=lambda i: i.get("created_at", 0), reverse=True)
+        return [{k: i[k] for k in RUN_SUMMARY_FIELDS if k in i} for i in items[:limit]]
 
     # ---- approvals --------------------------------------------------------
 

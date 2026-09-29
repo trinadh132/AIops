@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -39,6 +40,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Must match the model used in index_runbooks.py — query and corpus embeddings
 # have to come from the same model or the distances are meaningless.
 EMBEDDING_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+
+logger = logging.getLogger("self_healing_ops.retrieval")
 
 load_dotenv()
 def get_db_connection():
@@ -79,8 +82,10 @@ def retrieve(cur, query_embedding, failure_type: str | None, k: int):
         rows = cur.fetchall()
         if rows:
             return rows, False
-        print(f"  [!] No indexed chunks for failure_type='{failure_type}' — "
-              f"falling back to full-corpus semantic search.")
+        # Logged, not printed: this function also runs inside the MCP stdio
+        # server, where stdout is the protocol stream.
+        logger.warning("No indexed chunks for failure_type='%s' — falling back to "
+                       "full-corpus semantic search.", failure_type)
 
     cur.execute(
         """
