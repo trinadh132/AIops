@@ -1,0 +1,39 @@
+# Keeps the SHA-pinned actions, base images and dependencies current.
+# Grouped per ecosystem: one PR per week each, not one per package.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      maven:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directories:
+      - /infra
+      - /infra/bootstrap
+    schedule:
+      interval: weekly

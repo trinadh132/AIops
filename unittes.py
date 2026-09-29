@@ -12,12 +12,20 @@ Real quality validation still needs actual captured-logs/ fixtures and a
 live API key — that's Step 5/6 on the Phase 3 checklist, not this file.
 """
 
+import os
 import sys
 import types
 import unittest
 from unittest.mock import patch
 
-import agentic as ag
+# Hermetic: agentic._retrieval_deps() calls load_dotenv(), which searches
+# parent directories for a .env. Without an explicit value here, these tests
+# silently picked up a developer's real .env (and failed in CI, which has
+# none). load_dotenv never overrides a variable that's already set, so this
+# dummy also keeps real credentials out of the test process.
+os.environ["OPENROUTER_API"] = "test-dummy-key"
+
+import agentic as ag  # noqa: E402
 
 
 def _stub_module(name: str, **attrs):

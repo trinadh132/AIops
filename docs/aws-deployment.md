@@ -236,12 +236,51 @@ terraform apply                                              # everything else
 # confirm the SNS subscription email, apply init.sql on Neon and index runbooks.
 ```
 
-### CI/CD — GitHub Actions with OIDC
-- An IAM role trusts GitHub's OIDC provider, scoped to this repository and
-  its `main` branch. No long-lived AWS keys in GitHub secrets.
-- PRs: `mvn verify`, Python unit tests, `terraform fmt` / `validate` / `plan`.
-- Merges to `main`: build and push both images to ECR, `terraform apply`,
-  update the Lambda image and the ECS service.
+### CI/CD — GitHub Actions with OIDC (`.github/`)
+- **No AWS keys in GitHub.** Jobs exchange a short-lived OIDC token for one
+  of two roles, both defined in `infra/bootstrap` (outside the stack CI
+  deploys, so CI can't edit its own permissions):
+
+  | Role | Trusted subject | Permissions |
+  |---|---|---|
+  | `ops-agent-github-deploy` | `repo:trinadh132/AIops:environment:production` | Administrator. Controlled by *who* can assume it: only jobs in the `production` environment, which GitHub restricts to `main`. Next step: a permissions boundary. |
+  | `ops-agent-github-plan` | `repo:trinadh132/AIops:pull_request` | Read the state file + `ec2:DescribeAvailabilityZones`. Anyone who can push a branch can run code as this role, so it's nearly empty. |
+
+- **PR plans are `-refresh=false -lock=false`:** they diff config against
+  recorded state without AWS read APIs or the lock. Safe to expose because
+  the state holds no secrets (write-only attributes). The deploy job does
+  the full refreshing plan.
+- **`ci.yml`** (pull requests; also called by deploy): `mvn verify`, Python
+  unit tests, `terraform fmt`/`validate` for both stacks, Trivy config scan
+  (fails on undocumented HIGH/CRITICAL), both Docker builds, and the PR
+  plan once AWS is set up.
+- **`deploy.yml`** (push to `main`): full CI, then ensure ECR repos exist,
+  build + push both images tagged with the commit SHA, full plan + apply,
+  wait for ECS to stabilize, then smoke tests: the approval URL must
+  answer 403 without a signed link and the MCP URL 401 without a token,
+  which proves both functions start and their public-URL permissions work.
+- **Supply chain:** every action is pinned to a full commit SHA (tag in a
+  comment); Dependabot bumps actions, pip, Maven, Docker base images and
+  Terraform providers weekly, grouped per ecosystem.
+- **Lambda image gotcha:** builds set `provenance: false` and `sbom: false`.
+  Buildx attestations make the push an image index, which Lambda rejects.
+- Verified locally: actionlint clean; the Python job reproduced in a clean
+  `python:3.13-slim` container (91 tests), which caught tests that only
+  passed because `load_dotenv()` found a real `.env` in a parent folder.
+
+#### One-time GitHub setup
+1. `terraform -chdir=infra/bootstrap apply` → note `github_deploy_role_arn`,
+   `github_plan_role_arn`, `state_bucket`.
+2. Repository **variables** (Settings → Secrets and variables → Actions):
+   `AWS_REGION`, `AWS_ACCOUNT_ID`, `TF_STATE_BUCKET`, `AWS_DEPLOY_ROLE_ARN`,
+   `AWS_PLAN_ROLE_ARN`. Until `AWS_DEPLOY_ROLE_ARN` exists, deploy skips
+   itself and CI still runs.
+3. Repository **secrets**: `ALERT_EMAIL`, `BUDGET_EMAIL`, `ADMIN_CIDR`
+   (secrets so they're masked in logs).
+4. **Environment** `production` (Settings → Environments): deployment
+   branches = `main` only; optionally a required reviewer for a manual gate.
+5. Push to `main`. The first deploy creates ECR, pushes images, applies.
+   Then set the two external SSM secrets and confirm the SNS email.
 
 ### MCP layer — one tools module, two front doors
 - The capabilities (runbook search, diagnosis, run lookup, approvals, email,
@@ -336,7 +375,7 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
 5. **MCP server** *(done)* — `MCPServer` (SDK 2.x) adapter over `tools`; stdio locally, then a
    Function URL entrypoint in the agent image.
 6. **Terraform** *(done: validated, not yet applied)* — all infrastructure above, plus the budget.
-7. **GitHub Actions** — CI on PRs, OIDC deploy on `main`.
+7. **GitHub Actions** *(done: linted and reproduced locally, not yet run on GitHub)* — CI on PRs, OIDC deploy on `main`.
 8. **Neon** — apply `init.sql`, index the runbooks.
 9. **Game day** — inject each failure mode in AWS and record alarm → diagnosis
    → approval → remediation → recovery, with timings, in the README.

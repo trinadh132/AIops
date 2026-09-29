@@ -1,0 +1,144 @@
+# Push to main -> full CI -> build and push both images (tag = commit SHA)
+# -> terraform apply -> wait for ECS -> smoke-test the public endpoints.
+#
+# Inert until the AWS side exists: the deploy job skips itself while the
+# AWS_DEPLOY_ROLE_ARN repository variable is unset. Setup: docs/aws-deployment.md.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one halfway through an apply.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    # A called workflow can't exceed these; ci.yml's PR-only plan job asks
+    # for id-token, so it must be grantable even though it skips here.
+    permissions:
+      contents: read
+      id-token: write
+
+  deploy:
+    needs: ci
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The deploy role trusts only this environment's OIDC subject. Configure
+    # the environment in GitHub to allow deployments from main only (and
+    # optionally require a reviewer).
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_region: ${{ vars.AWS_REGION }}
+      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+      TF_VAR_budget_email: ${{ secrets.BUDGET_EMAIL }}
+      TF_VAR_admin_cidr: ${{ secrets.ADMIN_CIDR }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Fail fast if the role resolves into the wrong account.
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: infra
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=ops-agent/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION"
+
+      # Lambda can't be created or updated to an image that isn't in ECR
+      # yet, so make sure the repositories exist before pushing. A no-op
+      # after the first deploy.
+      - name: ensure ECR repositories
+        working-directory: infra
+        run: terraform apply -input=false -auto-approve -target=aws_ecr_repository.this
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # provenance/sbom off: buildx attestations turn the push into a
+      # multi-manifest image index, which Lambda rejects. Single platform
+      # (amd64) to match the Lambda and Fargate architectures in Terraform.
+      - name: build and push mock-service
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/mock-service.Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.ecr.outputs.registry }}/ops-agent/mock-service:${{ github.sha }}
+          cache-from: type=gha,scope=mock-service
+          cache-to: type=gha,mode=max,scope=mock-service
+
+      - name: build and push agent
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/agent.Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.ecr.outputs.registry }}/ops-agent/agent:${{ github.sha }}
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
+      - name: terraform apply
+        working-directory: infra
+        run: |
+          terraform plan -input=false -no-color -out=tfplan | tee plan.txt
+          { echo '### Terraform'; echo '```'; grep -E '^(Plan:|No changes)' plan.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          terraform apply -input=false tfplan
+
+      - name: wait for the mock service to stabilize
+        run: aws ecs wait services-stable --cluster ops-agent --services mock-service
+
+      # Proves the functions start and their public-URL permissions are
+      # right, without needing a valid link or token: both must refuse.
+      - name: smoke test public endpoints
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          approval_url=$(terraform output -raw approval_url)
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$approval_url")
+          echo "approval URL without a signed link -> $code"
+          test "$code" = "403"
+
+          mcp_url=$(terraform output -raw mcp_url 2>/dev/null || true)
+          if [ -n "$mcp_url" ] && [ "$mcp_url" != "null" ]; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              -H 'content-type: application/json' -d '{}' "${mcp_url%/}/mcp")
+            echo "MCP URL without a token -> $code"
+            test "$code" = "401"
+          fi
