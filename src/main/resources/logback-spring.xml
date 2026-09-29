@@ -28,7 +28,18 @@
 
     <root level="INFO">
         <appender-ref ref="STDOUT_JSON" />
-        <appender-ref ref="FILE_JSON" />
     </root>
+
+    <!--
+      The file copy only exists for capture-logs.ps1 when running locally via
+      mvn/java. Containers set SPRING_PROFILES_ACTIVE=container and log to
+      stdout only: the Docker/awslogs driver collects it, and an unrotated
+      file would otherwise grow until the container's disk fills.
+    -->
+    <springProfile name="!container">
+        <root level="INFO">
+            <appender-ref ref="FILE_JSON" />
+        </root>
+    </springProfile>
 
 </configuration>

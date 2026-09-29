@@ -1,7 +1,18 @@
+# Local stack: mock service + pgvector, plus the agent as a run-on-demand tool.
+#
+#   docker compose up -d --build                      # mock-service + pgvector
+#   docker compose run --rm agent python index_runbooks.py --reset
+#   docker compose run --rm agent python run_real_alert.py \
+#       --failure-type DISK_FULL --log-file captured-logs/disk_full.log
+#   docker compose run --rm agent python run_all_failuers.py
+#   docker compose run --rm agent python -m unittest unittes
+#
+# The agent needs OPENROUTER_API in .env (copy .env.example) for anything
+# that embeds or calls an LLM; the unit tests don't.
+
 services:
   pgvector:
     image: pgvector/pgvector:pg16
-    container_name: ops-agent-pgvector
     restart: unless-stopped
     environment:
       POSTGRES_USER: ops_agent
@@ -12,6 +23,50 @@ services:
     volumes:
       - pgvector_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops_agent -d ops_agent_rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mock-service:
+    build:
+      context: .
+      dockerfile: docker/mock-service.Dockerfile
+    image: ops-agent/mock-service:local
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # Roughly the Fargate task size planned in docs/aws-deployment.md, so
+    # memory behavior locally matches what AWS will see.
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 40s
+      retries: 5
+
+  agent:
+    build:
+      context: .
+      dockerfile: docker/agent.Dockerfile
+    image: ops-agent/agent:local
+    # Not started by `up`: it's a batch tool until the Lambda/MCP entrypoints
+    # exist. Use `docker compose run --rm agent ...`.
+    profiles: ["agent"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Overrides the localhost URL in .env: inside the network the DB is
+      # reachable by service name. load_dotenv() never overrides real env vars.
+      DATABASE_URL: postgresql://ops_agent:ops_agent_dev@pgvector:5432/ops_agent_rag
+    volumes:
+      - ./captured-logs:/app/captured-logs:ro
+    depends_on:
+      pgvector:
+        condition: service_healthy
 
 volumes:
   pgvector_data:

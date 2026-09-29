@@ -1,0 +1,16 @@
+# Build context is the repo root for both images; keep it small and secret-free.
+.git
+.claude
+.idea
+.vscode
+.env
+.env.*
+!.env.example
+target/
+logs/
+captured-logs/
+docs/
+**/__pycache__
+*.pyc
+.venv/
+venv/
