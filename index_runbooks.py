@@ -6,11 +6,11 @@ OpenRouter exposes embeddings through an OpenAI-compatible API at a different
 base_url, so we still use the `openai` Python SDK — just pointed elsewhere,
 with model names prefixed by provider (e.g. "openai/text-embedding-3-small").
 
-Requires OPENROUTER_API_KEY and DATABASE_URL in a .env file (see .env.example).
+Requires OPENROUTER_API and DATABASE_URL in a .env file (see .env.example).
 
-Usage (from self-healing-ops-retrieval/):
-    python scripts/index_runbooks.py --chunks chunks.json
-    python scripts/index_runbooks.py --chunks chunks.json --reset   # wipe table first
+Usage (from the repo root):
+    python index_runbooks.py --chunks chunks.json
+    python index_runbooks.py --chunks chunks.json --reset   # wipe table first
 """
 
 import argparse
@@ -23,13 +23,13 @@ from pathlib import Path
 import psycopg2
 from dotenv import load_dotenv
 from openai import OpenAI
-from pgvector import Vector
+from pgvector import HalfVector
 from pgvector.psycopg2 import register_vector
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # nvidia/llama-nemotron-embed-vl-1b-v2:free outputs 2048-dim embeddings, NOT
 # 1536 like OpenAI's text-embedding-3-small. EMBEDDING_DIM here must match
-# the vector(...) column type in sql/init.sql exactly, or inserts will fail.
+# the halfvec(...) column type in init.sql exactly, or inserts will fail.
 EMBEDDING_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2:free"
 EMBEDDING_DIM = 2048
 # Free-tier models on OpenRouter have tighter rate limits than paid ones, and
@@ -67,7 +67,7 @@ def main():
 
     api_key = os.environ.get("OPENROUTER_API")
     if not api_key:
-        sys.exit("OPENROUTER_API_KEY not set. Copy .env.example to .env and fill it in.")
+        sys.exit("OPENROUTER_API not set. Copy .env.example to .env and fill it in.")
 
     chunks_path = Path(args.chunks)
     if not chunks_path.exists():
@@ -135,7 +135,7 @@ def main():
                     chunk["chunk_index"],
                     chunk["content"],
                     chunk["source_file"],
-                    Vector(embedding),
+                    HalfVector(embedding),
                 ),
             )
             inserted += 1

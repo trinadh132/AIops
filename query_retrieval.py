@@ -12,15 +12,15 @@ pre-filter as the primary strategy.
 
 Usage:
     # Single ad-hoc query
-    python scripts/query_retrieval.py --query "503 errors, no available connections in pool" \\
+    python query_retrieval.py --query "503 errors, no available connections in pool" \\
         --failure-type connection_pool_exhaustion
 
     # Semantic-only, no filter (useful when you don't know the failure_type yet,
     # e.g. simulating a real alert pipeline)
-    python scripts/query_retrieval.py --query "orders API returning 503s under load"
+    python query_retrieval.py --query "orders API returning 503s under load"
 
     # Batch eval against labeled cases -> simple recall@k
-    python scripts/query_retrieval.py --eval eval_cases.json --k 3
+    python query_retrieval.py --eval eval_cases.json --k 3
 """
 
 import argparse
@@ -32,7 +32,7 @@ from pathlib import Path
 import psycopg2
 from dotenv import load_dotenv
 from openai import OpenAI
-from pgvector import Vector
+from pgvector import HalfVector
 from pgvector.psycopg2 import register_vector
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -59,10 +59,10 @@ def embed_query(client: OpenAI, text: str) -> list[float]:
 
 def retrieve(cur, query_embedding, failure_type: str | None, k: int):
     """Returns (rows, used_fallback). Hard pre-filter on failure_type when given."""
-    # Wrap in Vector(...) — a bare Python list gets adapted by psycopg2 as a
+    # Wrap in HalfVector(...) — a bare Python list gets adapted by psycopg2 as a
     # generic Postgres array (numeric[]), which the <=> operator can't compare
-    # against a `vector` column. Vector(...) forces the correct adaptation.
-    query_embedding = Vector(query_embedding)
+    # against a `halfvec` column. HalfVector(...) forces the correct adaptation.
+    query_embedding = HalfVector(query_embedding)
 
     if failure_type:
         cur.execute(
@@ -162,7 +162,7 @@ def main():
     load_dotenv()
     api_key = os.environ.get("OPENROUTER_API")
     if not api_key:
-        sys.exit("OPENROUTER_API_KEY not set. Copy .env.example to .env and fill it in.")
+        sys.exit("OPENROUTER_API not set. Copy .env.example to .env and fill it in.")
 
     client = OpenAI(
         api_key=api_key,

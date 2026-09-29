@@ -9,3 +9,15 @@ target/
 .env.*
 !.env.example
 .envt
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Captured failure logs are test fixtures for run_all_failuers.py — keep them
+# despite the *.log rule above so the Phase 3 acceptance run is reproducible.
+logs/
+!captured-logs/
+!captured-logs/*.log

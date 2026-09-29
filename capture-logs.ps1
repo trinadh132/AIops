@@ -12,10 +12,9 @@
 #   5. slices out only the NEW lines and saves them to captured-logs/<mode>.log
 #   6. deactivates the mode
 #
-# Caveat: this assumes POST /admin/failures/reset also clears simulated
-# memory usage, not just the active-mode set. If memory_leak / oom_kill
-# capture looks off (e.g. threshold crossed instantly), restart the service
-# between those two captures instead of relying on reset.
+# POST /admin/failures/reset also resets simulated memory to baseline
+# (FailureStateService.resetAll), so memory_leak and oom_kill can be captured
+# back to back without restarting the service. Full run takes ~5 minutes.
 
 $Base    = "http://localhost:8080"
 $LogFile = "logs/mock-service.log"
@@ -82,21 +81,21 @@ function Capture-Mode {
 $orderUrl = "$Base/api/orders/1"
 
 # --- request-driven modes: a modest sequential burst is enough to see the pattern ---
-#Capture-Mode -Mode "connection_pool_exhaustion" -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
-#Capture-Mode -Mode "db_deadlock"                -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
-#Capture-Mode -Mode "slow_downstream_dependency" -TrafficAction { Send-Sequential -Url $orderUrl -Count 5 }
-#Capture-Mode -Mode "disk_full"                  -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
-#Capture-Mode -Mode "bad_deploy_error_spike"     -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
-#Capture-Mode -Mode "config_drift"               -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
+Capture-Mode -Mode "connection_pool_exhaustion" -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
+Capture-Mode -Mode "db_deadlock"                -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
+Capture-Mode -Mode "slow_downstream_dependency" -TrafficAction { Send-Sequential -Url $orderUrl -Count 5 }
+Capture-Mode -Mode "disk_full"                  -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
+Capture-Mode -Mode "bad_deploy_error_spike"     -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
+Capture-Mode -Mode "config_drift"               -TrafficAction { Send-Sequential -Url $orderUrl -Count 30 }
 
 # --- concurrency-driven modes: need a genuine simultaneous burst ---
 Capture-Mode -Mode "thread_pool_exhaustion" -TrafficAction { Send-Burst -Url $orderUrl -Count 100 }
-#Capture-Mode -Mode "retry_storm"            -TrafficAction { Send-Burst -Url $orderUrl -Count 60 }
+Capture-Mode -Mode "retry_storm"            -TrafficAction { Send-Burst -Url $orderUrl -Count 60 }
 
 # --- time-driven modes: let the background simulator run to the 1024MB threshold ---
 # ~40MB every 5s -> roughly 130s to cross 1024MB from a clean reset
-#Capture-Mode -Mode "memory_leak" -TrafficAction { Start-Sleep -Seconds 140 } -SettleSeconds 0
-#Capture-Mode -Mode "oom_kill"    -TrafficAction { Start-Sleep -Seconds 140 } -SettleSeconds 0
+Capture-Mode -Mode "memory_leak" -TrafficAction { Start-Sleep -Seconds 140 } -SettleSeconds 0
+Capture-Mode -Mode "oom_kill"    -TrafficAction { Start-Sleep -Seconds 140 } -SettleSeconds 0
 
 Invoke-RestMethod -Method Post -Uri "$Base/admin/failures/reset" | Out-Null
 Write-Host "`nDone. One file per failure mode in $OutDir\"

@@ -10,8 +10,8 @@ Output: a single JSON file (chunks.json) that index_runbooks.py embeds and loads
 into pgvector. Kept as a separate step from indexing so you can eyeball the
 chunk boundaries before spending API calls on embeddings.
 
-Usage (from self-healing-ops-retrieval/):
-    python scripts/chunk_runbooks.py --runbooks-dir ../runbooks --out chunks.json
+Usage (from the repo root):
+    python chunk_runbooks.py --runbooks-dir RAGcourps --out chunks.json
 """
 
 import argparse
@@ -134,7 +134,7 @@ def chunk_runbook(path: Path) -> list[dict]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runbooks-dir", default="../runbooks")
+    parser.add_argument("--runbooks-dir", default="RAGcourps")
     parser.add_argument("--out", default="chunks.json")
     args = parser.parse_args()
 
