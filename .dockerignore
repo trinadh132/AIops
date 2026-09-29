@@ -1,16 +1,22 @@
-# Build context is the repo root for both images; keep it small and secret-free.
-.git
-.claude
-.idea
-.vscode
-.env
-.env.*
-!.env.example
-target/
-logs/
-captured-logs/
-docs/
+# Allowlist: the build context is the repo root for both images, so start
+# from nothing and admit only what the Dockerfiles COPY. Anything new in the
+# repo (secrets, local tool folders, scratch files) stays out of images by
+# default instead of needing its own exclusion line.
+*
+
+# mock-service.Dockerfile
+!pom.xml
+!src/
+
+# agent.Dockerfile
+!requirements.txt
+!*.py
+!init.sql
+!eval_cases.json
+!chunks.json
+!RAGcourps/
+!tools/
+
+# Never, even inside allowed folders.
 **/__pycache__
-*.pyc
-.venv/
-venv/
+**/*.pyc

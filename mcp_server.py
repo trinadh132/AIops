@@ -1,6 +1,6 @@
 """
-MCP server: the ops agent's capabilities for MCP clients (Claude Desktop,
-Claude Code, ...).
+MCP server: the ops agent's capabilities for MCP clients (desktop
+assistants, IDE agents, anything that speaks MCP).
 
 A thin adapter. Every tool is a few lines over tools/ and agentic.py, the
 same code the Lambda handlers run, so what a human sees through MCP and what
