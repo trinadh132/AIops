@@ -120,7 +120,7 @@ production the alarm's metric name already tells the agent the failure
 type, so the end-to-end score is about root cause and risk, not
 classification.
 
-### Game day (deployed on AWS)
+### Deployed on AWS
 
 `DISK_FULL` injected into the Fargate Spot service under steady traffic,
 full loop in production, one human approval by email. Run 2 is after the
@@ -291,5 +291,5 @@ the suite runs offline and on forks.
   free tier's 50 requests/day.
 - Over-escalation: with the risk floor, 3 of 10 incidents asked for approval
   the runbook says they didn't need. Safe, but it's human toil.
-- One game-day scenario so far (disk full); the other nine failure modes
+- One scenario so far (disk full); the other nine failure modes
   are verified locally and in the evaluation, not yet on AWS.
