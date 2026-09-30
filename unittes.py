@@ -76,6 +76,7 @@ def _base_state(**overrides) -> dict:
         "diagnosis": None,
         "remediation_plan": None,
         "risk_decision": None,
+        "effective_risk_level": None,
         "final_output": None,
         "node_errors": [],
         "diagnose_error": None,
@@ -308,6 +309,23 @@ class TestRiskGate(unittest.TestCase):
 
     def test_high_risk_routes_to_escalate(self):
         self.assertEqual(ag.risk_gate(self._state_with_risk("high"))["risk_decision"], "escalate")
+
+    def test_runbook_floor_overrides_an_llm_that_under_rates(self):
+        """The e2e eval case: bad deploy (runbook: high) rated medium."""
+        state = _base_state(alert=_base_alert(failure_type="BAD_DEPLOY_ERROR_SPIKE"),
+                            remediation_plan={"steps": [], "overall_risk_level": "medium"})
+        result = ag.risk_gate(state)
+        self.assertEqual(result, {"risk_decision": "escalate", "effective_risk_level": "high"})
+
+    def test_llm_may_rate_higher_than_the_runbook(self):
+        # CONNECTION_POOL_EXHAUSTION's runbook says low
+        result = ag.risk_gate(self._state_with_risk("high"))
+        self.assertEqual(result["effective_risk_level"], "high")
+
+    def test_invalid_llm_risk_fails_safe_to_high(self):
+        for bad in ("critical", None, "LOW"):
+            with self.subTest(bad=bad):
+                self.assertEqual(ag.risk_gate(self._state_with_risk(bad))["risk_decision"], "escalate")
 
     def test_route_after_risk_gate(self):
         self.assertEqual(

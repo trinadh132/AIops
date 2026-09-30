@@ -5,6 +5,7 @@ same unified endpoint pattern as the Phase 2 embeddings client.
 
 import json
 import os
+import time
 from dotenv import load_dotenv
 from openai import OpenAI
 load_dotenv()
@@ -48,15 +49,30 @@ def call_llm(prompt: str, response_format: str = "json") -> dict:
     response_format='json'. Not every OpenRouter model supports the
     'json_object' response_format — check your chosen model's page on
     openrouter.ai/models before relying on this in production."""
-    completion = _client.chat.completions.create(
-        model=DIAGNOSIS_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-        response_format={"type": "json_object"} if response_format == "json" else None,
-        extra_body={"models": DIAGNOSIS_FALLBACK_MODELS} if DIAGNOSIS_FALLBACK_MODELS else {},
-    )
-
-    content = completion.choices[0].message.content
+    # OpenRouter can answer HTTP 200 with no choices (or a null message) when
+    # the upstream provider fails mid-request; the openai SDK doesn't raise
+    # for that. Seen in the e2e eval as "'NoneType' object is not
+    # subscriptable". Usually transient, so retry once, then fail with a
+    # message that says what actually happened.
+    for attempt in range(2):
+        completion = _client.chat.completions.create(
+            model=DIAGNOSIS_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"} if response_format == "json" else None,
+            extra_body={"models": DIAGNOSIS_FALLBACK_MODELS} if DIAGNOSIS_FALLBACK_MODELS else {},
+        )
+        choice = completion.choices[0] if completion.choices else None
+        content = choice.message.content if choice and choice.message else None
+        if content is not None:
+            break
+        if attempt == 0:
+            time.sleep(2)
+    else:
+        raise ValueError(
+            f"Model {completion.model or DIAGNOSIS_MODEL} returned no content after 2 attempts "
+            f"(upstream error: {getattr(completion, 'error', None)!r})"
+        )
     used_model = completion.model  # which model in the chain actually served this
 
     if response_format != "json":

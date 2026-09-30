@@ -377,6 +377,6 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
    Function URL entrypoint in the agent image.
 6. **Terraform** *(done: validated, not yet applied)* — all infrastructure above, plus the budget.
 7. **GitHub Actions** *(done: linted and reproduced locally, not yet run on GitHub)* — CI on PRs, OIDC deploy on `main`.
-8. **Neon** — apply `init.sql`, index the runbooks.
+8. **Neon** *(done: PostgreSQL 18.6, pgvector 0.8.6, us-east-1 pooled endpoint)* — apply `init.sql`, index the runbooks.
 9. **Game day** — inject each failure mode in AWS and record alarm → diagnosis
    → approval → remediation → recovery, with timings, in the README.

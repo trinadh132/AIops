@@ -9,6 +9,8 @@ import operator
 import os
 import uuid
 from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Optional, get_args
 
 from typing_extensions import Annotated, TypedDict
@@ -80,6 +82,8 @@ class AgentState(TypedDict):
     diagnosis: Optional[Diagnosis]
     remediation_plan: Optional[RemediationPlan]
     risk_decision: Optional[Literal["auto_recommend", "escalate"]]
+    # max(LLM risk, runbook risk): what risk_gate actually decided on
+    effective_risk_level: Optional[str]
     final_output: Optional[dict]
     node_errors: Annotated[list[str], operator.add]
 
@@ -354,11 +358,37 @@ def diagnosis_failed(state: AgentState) -> dict:
     }
 
 
+RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+RUNBOOK_DIR = Path(__file__).resolve().parent / "RAGcourps"
+
+
+@lru_cache(maxsize=None)
+def runbook_risk_level(failure_type: str) -> Optional[str]:
+    """risk_level from the failure mode's runbook frontmatter, or None."""
+    path = RUNBOOK_DIR / f"{failure_type.lower()}.md"
+    if not path.exists():
+        return None
+    import frontmatter
+    level = frontmatter.load(path).get("risk_level")
+    return level if level in RISK_ORDER else None
+
+
 def risk_gate(state: AgentState) -> dict:
-    """Non-LLM decision node — just reads risk_level off the plan."""
-    risk = state["remediation_plan"]["overall_risk_level"]
+    """Non-LLM decision node. The LLM's risk rating is FLOORED at the
+    runbook's: in the e2e eval the LLM agreed with the runbook on only 3 of
+    8 incidents and rated 2 LOWER, including a high-risk bad deploy it
+    called medium, which would have auto-remediated with no human. Rating
+    higher than the runbook is allowed (more caution is safe). A missing or
+    invalid LLM rating counts as high: a malformed answer mustn't earn less
+    oversight."""
+    llm_risk = state["remediation_plan"].get("overall_risk_level")
+    floor = runbook_risk_level(state["alert"]["failure_type"])
+    candidates = [llm_risk if llm_risk in RISK_ORDER else "high"] + ([floor] if floor else [])
+    risk = max(candidates, key=RISK_ORDER.__getitem__)
+    if risk != llm_risk:
+        logger.info("risk_gate: LLM said %r, runbook floor %r -> using %r", llm_risk, floor, risk)
     decision = "escalate" if risk in RISK_LEVELS_REQUIRING_ESCALATION else "auto_recommend"
-    return {"risk_decision": decision}
+    return {"risk_decision": decision, "effective_risk_level": risk}
 
 
 def route_after_risk_gate(state: AgentState) -> Literal["recommend_action", "escalate_for_approval"]:
@@ -417,6 +447,7 @@ def initial_state(alert: Alert) -> AgentState:
         "diagnosis": None,
         "remediation_plan": None,
         "risk_decision": None,
+        "effective_risk_level": None,
         "final_output": None,
         "node_errors": [],
         "diagnose_error": None,
@@ -535,6 +566,7 @@ def _format_output(state: AgentState, status: str) -> dict:
         "status": status,
         "diagnosis": state["diagnosis"],
         "remediation_plan": state["remediation_plan"],
+        "effective_risk_level": state.get("effective_risk_level"),
         "sources": state["diagnosis"]["sources"],
     }
 

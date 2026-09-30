@@ -39,6 +39,17 @@ class TestRisk(unittest.TestCase):
         self.assertEqual(ev.expected_decision("medium"), "auto_recommend")
 
 
+class TestRedaction(unittest.TestCase):
+    def test_db_endpoint_is_removed_from_saved_errors(self):
+        err = ('OperationalError: connection to server at "ep-abc-123-pooler.c-1.us-east-1.aws.neon.tech" '
+               '(52.72.93.132), port 5432 failed: SSL SYSCALL error: EOF detected')
+        out = ev.redact(err)
+        self.assertNotIn("neon.tech", out)
+        self.assertNotIn("52.72.93.132", out)
+        self.assertIn('connection to server at "<db-host>", port 5432 failed', out)
+        self.assertIsNone(ev.redact(None))
+
+
 class TestBlindMetrics(unittest.TestCase):
     def test_rank_and_metrics(self):
         self.assertEqual(ev.rank_of("DISK_FULL", ["OOM_KILL", "DISK_FULL", "DISK_FULL"]), 2)

@@ -132,6 +132,16 @@ def load_log(failure_type: str, variant: str = "tagged") -> str:
     return strip_labels(text) if variant == "label_free" else text
 
 
+# Results files are committed. psycopg errors embed the database host and IP
+# ('connection to server at "ep-....neon.tech" (1.2.3.4)'), which would
+# publish the database endpoint, so they're redacted before saving.
+_DB_ENDPOINT = re.compile(r'(connection to server at )"[^"]+"(?: \([0-9a-fA-F.:]+\))?')
+
+
+def redact(text: str | None) -> str | None:
+    return _DB_ENDPOINT.sub(r'\1"<db-host>"', text) if text else text
+
+
 def _save(part: str, payload: dict) -> Path:
     RESULTS_DIR.mkdir(exist_ok=True)
     path = RESULTS_DIR / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{part}.json"
@@ -185,12 +195,14 @@ def run_e2e(modes: list[str], repeats: int, pause_seconds: float) -> dict:
                 "retrieval_confidence": round(final.get("retrieval_confidence", 0.0), 4),
                 "web_search_used": bool(final.get("web_search_results")),
                 "runbook_risk": rb_risk, "llm_risk": plan.get("overall_risk_level"),
+                # what risk_gate decided on after flooring at the runbook's level
+                "effective_risk": out.get("effective_risk_level"),
                 "risk": compare_risk(plan.get("overall_risk_level"), rb_risk) if completed else None,
                 "on_topic": on_topic(mode, f"{diag.get('root_cause', '')} {diag.get('reasoning', '')}") if completed else None,
                 "decision_correct": status == expected_decision(rb_risk) if completed else None,
                 "cites_runbook": "runbook" in (diag.get("sources") or []) if completed else None,
                 "root_cause": (diag.get("root_cause") or "")[:200],
-                "error": error or ("; ".join(out.get("errors", [])) or None),
+                "error": redact(error or ("; ".join(out.get("errors", [])) or None)),
             }
             rows.append(row)
             print(f"  {mode:28s} #{attempt + 1} {status:17s} risk={row['risk']} on_topic={row['on_topic']} "

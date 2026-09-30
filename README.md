@@ -69,15 +69,49 @@ on label-free input it would trigger web search for about a third of
 incidents even when retrieval ranked the right runbook first. It needs
 re-deriving from these numbers.
 
-**End to end: is the diagnosis right and the risk call safe?** *Pending.*
-`python eval_agent.py e2e` scores, per failure mode: root cause on topic
-(keyword rubric from the runbook's "Likely root causes"), LLM risk vs
-runbook risk (flagging under-rating, the unsafe direction), whether it
-escalated exactly when the runbook says high risk, and latency. The first
-run hit OpenRouter's free tier limit (50 requests/day, embeddings
-included) before any diagnosis completed. It still found a bug: a rate
-limit during the summarize-and-retry step raised out of the graph instead
-of ending in `diagnosis_failed` (fixed, with a regression test).
+**End to end: is the diagnosis right and the risk call safe?** The full
+graph per failure mode, retrieving from Neon, diagnosing with a free
+OpenRouter model. Scored against each runbook: root cause on topic
+(keyword rubric from "Likely root causes"), LLM risk vs runbook risk, and
+whether the agent escalated exactly when the runbook says high risk.
+
+| Failure mode | Runbook risk | LLM risk | Floored risk | Decision | Root cause on topic |
+|---|---|---|---|---|---|
+| BAD_DEPLOY_ERROR_SPIKE | high | medium ⚠ | high | escalate | ✓ |
+| CONFIG_DRIFT | medium | low ⚠ | medium | auto | ✓ |
+| CONNECTION_POOL_EXHAUSTION | low | high | high | escalate (over) | ✓ |
+| DB_DEADLOCK | medium | high | high | escalate (over) | ✓ |
+| DISK_FULL | high | low ⚠ | high | escalate | ✓ |
+| MEMORY_LEAK | medium | medium | medium | auto | ✓ |
+| OOM_KILL | high | high | high | escalate | ✓ |
+| RETRY_STORM | medium | high | high | escalate (over) | ✓ |
+| SLOW_DOWNSTREAM_DEPENDENCY | low | low | low | auto | ✓ |
+| THREAD_POOL_EXHAUSTION | low | low | low | auto | ✓ |
+
+- **Diagnosis:** 10/10 root causes on topic, 10/10 cite the runbook.
+- **Risk rating is the weak point:** the LLM matched the runbook 4/10,
+  rated lower 3 times (⚠), higher 3 times. Acting on its own rating, **2 of
+  the 3 high-risk incidents** (bad deploy, disk full) would have skipped
+  human approval.
+- **Fix: the risk gate floors the LLM at the runbook's level** (`max` of
+  the two; a malformed rating counts as high). With the floor: **0 unsafe
+  decisions**, 7/10 exactly per policy, 3 over-escalations (costs a human
+  click, not safety). Disk full was re-run after the change and escalated
+  despite the LLM calling it low.
+- **Latency:** median ~71 s, 26–228 s on free-tier models. Retrieval
+  confidence 0.72–0.81 on agent input; web search never triggered.
+
+The same run exposed three robustness bugs, all fixed with tests: a Neon
+connection dropped during the TLS handshake (connects now retry), an
+upstream provider error returned an empty completion that crashed with
+`'NoneType' object is not subscriptable` (now retried once, then a clear
+error), and a rate limit in the summarize-and-retry step raised out of the
+graph instead of ending in `diagnosis_failed`.
+
+Raw data: `eval_results/20260930T054713Z-e2e.json` (all ten, before the
+floor and fixes) and `20260930T055417Z-e2e.json` (the two re-runs after).
+Floored risk for the first eight is `max(LLM, runbook)` applied to the
+recorded ratings, the same rule the gate now runs.
 
 **What these numbers don't show:** ten fixtures, one run each; free-tier
 models vary between runs; the on-topic check is a keyword rubric (catches
@@ -150,6 +184,9 @@ Inject with `POST /admin/failures/{mode}/activate`; list with
   validated before queueing, and validated again by the service against its
   own allowlist. A prompt-injected log line can change what the plan says,
   not what runs.
+- **The LLM's risk rating is only allowed to raise caution.** The gate uses
+  `max(LLM risk, runbook risk)`, because the evaluation showed the model
+  under-rating 3 of 10 incidents, two of them high risk.
 - **Shadow mode by default.** `AUTO_REMEDIATE=false` sends every fix,
   even low risk, to a human until the diagnoses have earned trust.
 - **Idempotency under at-least-once delivery.** Runs are claimed with a
@@ -201,7 +238,7 @@ tools are opt-in (`MCP_ENABLE_WRITE_TOOLS=true`).
 | `eval_agent.py`, `eval_results/` | Evaluation harness and results |
 | `infra/` | Terraform (+ `bootstrap/` for state bucket and CI roles) |
 | `.github/` | CI and deploy workflows, Dependabot |
-| `test_*.py`, `unittes.py`, `src/test/` | 100 Python + 8 Java tests; no network or AWS account needed |
+| `test_*.py`, `unittes.py`, `src/test/` | 103 Python + 8 Java tests; no network or AWS account needed |
 
 ## Tests
 
@@ -219,7 +256,10 @@ the suite runs offline and on forks.
 - Remediation is limited to what the mock can do (clearing a failure mode);
   a real deployment would add restart, scale-out and rollback actions to the
   allowlist.
-- The risk gate trusts the LLM's risk rating; flooring it at the runbook's
-  risk level is the next safety change (see the evaluation above).
-- Not yet deployed: Terraform is validated and scanned, the workflows are
-  linted and reproduced locally, but neither has run against a real account.
+- The evaluation is ten fixtures, one run each; LLM risk ratings in
+  particular vary between runs. Repeats (`--repeats 3`) need more than the
+  free tier's 50 requests/day.
+- Over-escalation: with the risk floor, 3 of 10 incidents asked for approval
+  the runbook says they didn't need. Safe, but it's human toil.
+- Not yet deployed: Terraform is validated and scanned and CI runs on GitHub,
+  but the stack hasn't been applied to a real account.

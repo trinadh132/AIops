@@ -1,0 +1,52 @@
+{
+  "part": "e2e",
+  "repeats": 1,
+  "threshold": 0.72,
+  "metrics": {
+    "completed": "2/2",
+    "on_topic": 1.0,
+    "risk_agree": 0.5,
+    "risk_under_rated": 1,
+    "decision_correct": 1.0,
+    "cites_runbook": 1.0,
+    "web_search_triggered": 0,
+    "median_seconds": 102.4
+  },
+  "rows": [
+    {
+      "failure_type": "DISK_FULL",
+      "attempt": 1,
+      "status": "pending_approval",
+      "seconds": 102.4,
+      "retrieval_confidence": 0.7794,
+      "web_search_used": false,
+      "runbook_risk": "high",
+      "llm_risk": "low",
+      "effective_risk": "high",
+      "risk": "under",
+      "on_topic": true,
+      "decision_correct": true,
+      "cites_runbook": true,
+      "root_cause": "Disk space exhaustion on the volume hosting the service, causing write operations to fail with 'no space left on device'. The specific consumer of disk space (logs, temp files, or application data) re",
+      "error": null
+    },
+    {
+      "failure_type": "SLOW_DOWNSTREAM_DEPENDENCY",
+      "attempt": 1,
+      "status": "auto_recommend",
+      "seconds": 25.7,
+      "retrieval_confidence": 0.7889,
+      "web_search_used": false,
+      "runbook_risk": "low",
+      "llm_risk": "low",
+      "effective_risk": "low",
+      "risk": "agree",
+      "on_topic": true,
+      "decision_correct": true,
+      "cites_runbook": true,
+      "root_cause": "Downstream dependency degraded \u2014 the service's calls to its downstream dependency are experiencing 2-5s latency (vs. normal <100ms baseline), causing every request to GET /api/orders/{id} to succeed b",
+      "error": null
+    }
+  ],
+  "run_at": "2026-09-30T05:54:17.901432+00:00"
+}

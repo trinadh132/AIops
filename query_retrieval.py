@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 import psycopg2
@@ -48,7 +49,19 @@ def get_db_connection():
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         sys.exit("DATABASE_URL not set. Copy .env.example to .env and fill it in.")
-    conn = psycopg2.connect(dsn)
+    # Neon's pooler occasionally drops a connection during the TLS handshake
+    # ("SSL SYSCALL error: EOF detected" in the e2e eval), and a suspended
+    # compute takes a moment to wake. Both are transient: retry the connect
+    # itself a few times before giving up.
+    for attempt in range(3):
+        try:
+            conn = psycopg2.connect(dsn, connect_timeout=10)
+            break
+        except psycopg2.OperationalError as e:
+            if attempt == 2:
+                raise
+            logger.warning("DB connect failed (attempt %d/3), retrying: %s", attempt + 1, str(e).strip())
+            time.sleep(2 ** attempt)
     register_vector(conn)
     return conn
 

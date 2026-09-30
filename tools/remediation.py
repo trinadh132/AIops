@@ -116,7 +116,8 @@ class RemediationRouter:
         message = (
             f"The ops agent wants approval to remediate {failure_type}.\n\n"
             f"Run: {run_id}\n"
-            f"Risk: {plan.get('overall_risk_level', '?')}\n"
+            f"Risk: {final_output.get('effective_risk_level') or plan.get('overall_risk_level', '?')} "
+            f"(model said {plan.get('overall_risk_level', '?')}; floored at the runbook's level)\n"
             f"Root cause: {diagnosis.get('root_cause', '?')}\n"
             f"Confidence: {diagnosis.get('confidence', '?')}\n\n"
             f"Proposed plan (advisory):\n{steps or '  (none)'}\n\n"
