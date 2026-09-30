@@ -387,5 +387,5 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
 6. **Terraform** *(done: applied, 88 resources in us-east-1)* — all infrastructure above, plus the budget.
 7. **GitHub Actions** *(done: linted and reproduced locally, not yet run on GitHub)* — CI on PRs, OIDC deploy on `main`.
 8. **Neon** *(done: PostgreSQL 18.6, pgvector 0.8.6, us-east-1 pooled endpoint)* — apply `init.sql`, index the runbooks.
-9. **Game day** *(first scenario done: DISK_FULL, 600 s to recover; see README)* — inject each failure mode in AWS and record alarm → diagnosis
+9. **Game day** *(DISK_FULL twice: 600 s, then 180 s after the alarm fix; see README)* — inject each failure mode in AWS and record alarm → diagnosis
    → approval → remediation → recovery, with timings, in the README.

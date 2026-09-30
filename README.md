@@ -123,28 +123,32 @@ classification.
 ### Game day (deployed on AWS)
 
 `DISK_FULL` injected into the Fargate Spot service under steady traffic,
-full loop in production, one human approval by email:
+full loop in production, one human approval by email. Run 2 is after the
+alarm fix described below.
 
-| Phase | Duration |
-|---|---|
-| Failure starts → CloudWatch alarm | 2 min 02 s |
-| Alarm → agent run claimed | 3 s |
-| Diagnosis (Neon retrieval + LLM + risk gate) | 1 min 21 s |
-| Waiting for the human to approve | 1 min 31 s |
-| Approval → fix applied by the service (SQS) | < 1 s |
-| Fix applied → alarm back to OK | 7 min 05 s |
-| **Recorded `seconds_to_recover`** (alarm raised → OK) | **600 s** |
+| Phase | Run 1 | Run 2 |
+|---|---|---|
+| Failure starts → CloudWatch alarm | 2 min 02 s | 1 min 17 s |
+| Alarm → agent run claimed | 3 s | 3 s |
+| Diagnosis (Neon retrieval + LLM + risk gate) | 1 min 21 s | 59 s |
+| Waiting for the human to approve | 1 min 31 s | 22 s |
+| Approval → fix applied by the service (SQS) | < 1 s | < 1 s |
+| **Fix applied → alarm back to OK** | **7 min 05 s** | **1 min 36 s** |
+| **Recorded `seconds_to_recover`** (alarm raised → OK) | **600 s** | **180 s** |
 
-- The model rated the incident **low** risk; the runbook floor made it
-  **high**, so it waited for approval instead of auto-remediating.
-- Root cause given: log rotation misconfiguration filling the disk (on
-  topic).
-- **71% of the recovery time was CloudWatch noticing, not the system
+- Both times the model rated the incident **low** risk; the runbook floor
+  made it **high**, so it waited for approval instead of auto-remediating.
+- Root cause both times: log growth without working rotation filling the
+  disk (on topic).
+- **Run 1: 71% of recovery time was CloudWatch noticing, not the system
   fixing.** A log-derived metric stops producing datapoints once errors
   stop, and a `notBreaching` alarm keeps judging by its last real
   (breaching) datapoint until it ages out. Fix: `default_value = "0"` on
-  the metric filters, so healthy traffic emits real zeros and the alarm
-  can clear on the next evaluation.
+  the metric filters, so healthy traffic emits real zeros. **Fix → OK went
+  from 425 s to 96 s (−77%).** The rest of the drop is a faster approval
+  click and LLM latency variance, not the fix.
+- Detection time depends on where in the 1-minute metric period the
+  failure starts, so it varies run to run.
 
 ### Honesty fixes the evaluation drove
 - **The agent could read the answer off its input.** The admin API logs
