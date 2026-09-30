@@ -36,6 +36,12 @@ resource "aws_cloudwatch_log_metric_filter" "failure" {
     namespace = local.metric_namespace
     value     = "1"
     unit      = "Count"
+    # Every log line that does NOT match emits a 0. Without this, a fixed
+    # service stops producing datapoints for this metric, and the alarm keeps
+    # judging by its last real (breaching) datapoint until it ages out: in the
+    # first game day that was 7 min of the 10-min recovery time. With real
+    # zeros from healthy traffic, the alarm clears on the next evaluation.
+    default_value = "0"
   }
 }
 

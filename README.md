@@ -120,6 +120,32 @@ production the alarm's metric name already tells the agent the failure
 type, so the end-to-end score is about root cause and risk, not
 classification.
 
+### Game day (deployed on AWS)
+
+`DISK_FULL` injected into the Fargate Spot service under steady traffic,
+full loop in production, one human approval by email:
+
+| Phase | Duration |
+|---|---|
+| Failure starts → CloudWatch alarm | 2 min 02 s |
+| Alarm → agent run claimed | 3 s |
+| Diagnosis (Neon retrieval + LLM + risk gate) | 1 min 21 s |
+| Waiting for the human to approve | 1 min 31 s |
+| Approval → fix applied by the service (SQS) | < 1 s |
+| Fix applied → alarm back to OK | 7 min 05 s |
+| **Recorded `seconds_to_recover`** (alarm raised → OK) | **600 s** |
+
+- The model rated the incident **low** risk; the runbook floor made it
+  **high**, so it waited for approval instead of auto-remediating.
+- Root cause given: log rotation misconfiguration filling the disk (on
+  topic).
+- **71% of the recovery time was CloudWatch noticing, not the system
+  fixing.** A log-derived metric stops producing datapoints once errors
+  stop, and a `notBreaching` alarm keeps judging by its last real
+  (breaching) datapoint until it ages out. Fix: `default_value = "0"` on
+  the metric filters, so healthy traffic emits real zeros and the alarm
+  can clear on the next evaluation.
+
 ### Honesty fixes the evaluation drove
 - **The agent could read the answer off its input.** The admin API logs
   "failure mode X activated", and that line reached the agent. It's now
@@ -261,5 +287,5 @@ the suite runs offline and on forks.
   free tier's 50 requests/day.
 - Over-escalation: with the risk floor, 3 of 10 incidents asked for approval
   the runbook says they didn't need. Safe, but it's human toil.
-- Not yet deployed: Terraform is validated and scanned and CI runs on GitHub,
-  but the stack hasn't been applied to a real account.
+- One game-day scenario so far (disk full); the other nine failure modes
+  are verified locally and in the evaluation, not yet on AWS.

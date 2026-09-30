@@ -158,6 +158,15 @@ called out so it can be defended (or revisited) in an interview.
   invalid link gets the same generic 403 so probes learn nothing.
 - **Failure handling:** if queueing fails after approval, the run reverts to
   `pending` so the same link can be retried.
+- **Gotcha hit on deploy: the approver's subscription unsubscribed itself.**
+  SNS email subscriptions can be cancelled by anyone who opens the
+  unsubscribe link, unauthenticated, and mail providers/scanners open links.
+  Fix: confirm from the CLI with the token from the (uncopied, unclicked)
+  confirmation link:
+  `aws sns confirm-subscription --topic-arn <approvals topic> --token <token>
+  --authenticate-on-unsubscribe true`. After that, unsubscribing requires
+  signed AWS credentials. Same lesson as the approval links: a URL that
+  changes state on GET will eventually be fetched by a robot.
 - **Why not Cognito/API Gateway:** a signed, expiring, single-use link is
   enough for a single approver and costs nothing. The trade-off: the link is
   a bearer credential, so inbox access equals approval access.
@@ -375,8 +384,8 @@ avoid debug logging) and accidentally adding a NAT gateway or ALB.
    action allowlist; HMAC-signed approval Function URL.
 5. **MCP server** *(done)* — `MCPServer` (SDK 2.x) adapter over `tools`; stdio locally, then a
    Function URL entrypoint in the agent image.
-6. **Terraform** *(done: validated, not yet applied)* — all infrastructure above, plus the budget.
+6. **Terraform** *(done: applied, 88 resources in us-east-1)* — all infrastructure above, plus the budget.
 7. **GitHub Actions** *(done: linted and reproduced locally, not yet run on GitHub)* — CI on PRs, OIDC deploy on `main`.
 8. **Neon** *(done: PostgreSQL 18.6, pgvector 0.8.6, us-east-1 pooled endpoint)* — apply `init.sql`, index the runbooks.
-9. **Game day** — inject each failure mode in AWS and record alarm → diagnosis
+9. **Game day** *(first scenario done: DISK_FULL, 600 s to recover; see README)* — inject each failure mode in AWS and record alarm → diagnosis
    → approval → remediation → recovery, with timings, in the README.
